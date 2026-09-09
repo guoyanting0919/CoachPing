@@ -1,34 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../api";
 import type { SessionRow } from "./day-view";
+import { fetchRange, peekRange, subscribeInvalidate } from "./session-cache";
+import { monthAnchor, monthGrid, shiftMonth } from "@/lib/calendar";
 import { fmtMonthDay, fmtTimeRange, ymd } from "@/lib/time";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEKDAY_HEADS = ["一", "二", "三", "四", "五", "六", "日"];
-
-function monthGrid(anchor: string): string[] {
-  const [y, m] = anchor.split("-").map(Number);
-  const first = Date.UTC(y, m - 1, 1);
-  const last = Date.UTC(y, m, 0);
-
-  // 以星期一為首補滿前後空白，讓格子永遠是 7 的倍數。
-  const leading = (new Date(first).getUTCDay() + 6) % 7;
-  const trailing = 6 - ((new Date(last).getUTCDay() + 6) % 7);
-
-  const start = first - leading * DAY_MS;
-  const total = leading + new Date(last).getUTCDate() + trailing;
-
-  return Array.from({ length: total }, (_, i) =>
-    new Date(start + i * DAY_MS).toISOString().slice(0, 10),
-  );
-}
-
-function shiftMonth(anchor: string, delta: number): string {
-  const [y, m] = anchor.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1 + delta, 1)).toISOString().slice(0, 7) + "-01";
-}
 
 /**
  * 月曆格。同時用於「目前排課狀況」總覽與「上課日期」選擇器——
@@ -47,31 +25,37 @@ export default function ScheduleCalendar({
   minDate?: string;
 }) {
   const today = useMemo(() => ymd(new Date()), []);
-  const [anchor, setAnchor] = useState(
-    () => (selected ?? today).slice(0, 7) + "-01",
-  );
-  const [loaded, setLoaded] = useState<{ key: string; rows: SessionRow[] } | null>(null);
-
+  const [anchor, setAnchor] = useState(() => monthAnchor(selected ?? today));
   const days = useMemo(() => monthGrid(anchor), [anchor]);
-  const rangeKey = `${days[0]}~${days[days.length - 1]}`;
+  const from = days[0];
+  const to = days[days.length - 1];
+  const rangeKey = `${from}~${to}`;
+
+  // 初始值直接讀快取：頁面載入時已在背景預抓，多數情況下這裡就有資料，
+  // 不需要 loading 態。沒命中時先渲染沒有標記的月曆，資料到了再補上。
+  const [loaded, setLoaded] = useState<{ key: string; rows: SessionRow[] } | null>(() => {
+    const hit = peekRange(from, to);
+    return hit ? { key: rangeKey, rows: hit } : null;
+  });
   const sessions = loaded?.key === rangeKey ? loaded.rows : null;
 
+  // 別處改動課程後清掉本地副本，下面的 effect 會重抓。
+  useEffect(() => subscribeInvalidate(() => setLoaded(null)), []);
+
   useEffect(() => {
+    if (sessions) return;
     let cancelled = false;
 
-    api<{ sessions: SessionRow[] }>(
-      `/api/coach/sessions?from=${days[0]}&to=${days[days.length - 1]}`,
-      idToken,
-    )
-      .then((d) => {
-        if (!cancelled) setLoaded({ key: rangeKey, rows: d.sessions });
+    fetchRange(idToken, from, to)
+      .then((rows) => {
+        if (!cancelled) setLoaded({ key: rangeKey, rows });
       })
       .catch(() => {});
 
     return () => {
       cancelled = true;
     };
-  }, [idToken, days, rangeKey]);
+  }, [idToken, from, to, rangeKey, sessions]);
 
   const byDay = useMemo(() => {
     const map = new Map<string, SessionRow[]>();

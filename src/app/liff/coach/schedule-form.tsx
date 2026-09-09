@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import DatePickerField from "./date-picker-field";
 import MemberPicker from "./member-picker";
+import { invalidateSessions, prefetchRange } from "./session-cache";
 import MonthCalendar from "./month-calendar";
 import {
   Button,
@@ -22,6 +23,7 @@ import {
   WEEK_OPTIONS,
   generateStartTimes,
 } from "@/lib/schedule";
+import { monthAnchor, monthGrid } from "@/lib/calendar";
 import { fmt, fmtSession, weekdayZh, ymd } from "@/lib/time";
 
 type MemberRow = { id: string; name: string; linked: boolean };
@@ -45,6 +47,14 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
   const [error, setError] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<string[] | null>(null);
   const [done, setDone] = useState<number | null>(null);
+
+  // 進頁面就在背景把當月課表抓好。月曆與日期選擇器都是「開啟才掛載」，
+  // 等到掛載才請求的話，每次展開都要盯著空白月曆等一下。
+  // 刻意不設 loading 態——資料備妥前使用者本來就在填別的欄位。
+  useEffect(() => {
+    const days = monthGrid(monthAnchor(ymd(new Date())));
+    prefetchRange(idToken, days[0], days[days.length - 1]);
+  }, [idToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,6 +114,7 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
       }
 
       const data = (await res.json()) as { created: number };
+      invalidateSessions();
       setDone(data.created);
     } catch (err) {
       setError((err as Error).message);

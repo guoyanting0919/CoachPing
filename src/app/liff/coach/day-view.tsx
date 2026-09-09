@@ -1,9 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../api";
 import SessionActions from "./session-actions";
+import {
+  fetchRange,
+  invalidateSessions,
+  peekRange,
+  subscribeInvalidate,
+} from "./session-cache";
 import { Card, ErrorBox, Hint, Screen, Title } from "../ui";
+import { weekOf, shiftWeek } from "@/lib/calendar";
 import { fmt, weekdayZh, ymd } from "@/lib/time";
 
 export type SessionRow = {
@@ -16,49 +22,35 @@ export type SessionRow = {
   participants: { id: string; name: string; linked: boolean }[];
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** 取得包含該日、以星期一為首的七天（台北時區的日期字串）。 */
-function weekOf(anchor: string): string[] {
-  const [y, m, d] = anchor.split("-").map(Number);
-  const base = Date.UTC(y, m - 1, d);
-  // getUTCDay: 0=日。轉成以週一為 0。
-  const offset = (new Date(base).getUTCDay() + 6) % 7;
-  const monday = base - offset * DAY_MS;
-  return Array.from({ length: 7 }, (_, i) =>
-    new Date(monday + i * DAY_MS).toISOString().slice(0, 10),
-  );
-}
-
-function shiftWeek(anchor: string, weeks: number): string {
-  const [y, m, d] = anchor.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d) + weeks * 7 * DAY_MS).toISOString().slice(0, 10);
-}
-
 export default function DayView({ idToken }: { idToken: string }) {
   const today = useMemo(() => ymd(new Date()), []);
   const [selected, setSelected] = useState(today);
   const [anchor, setAnchor] = useState(today);
-  // 連同「這批資料屬於哪一週」一起存，切換週次時就不需要先同步清空狀態，
-  // 也不會短暫顯示上一週的課。
-  const [loaded, setLoaded] = useState<{ weekKey: string; rows: SessionRow[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
   const [openId, setOpenId] = useState<string | null>(null);
 
   const week = useMemo(() => weekOf(anchor), [anchor]);
-  const weekKey = week[0];
+  const weekKey = `${week[0]}~${week[6]}`;
+
+  // 連同「這批資料屬於哪一週」一起存，切換週次時就不需要先同步清空狀態，
+  // 也不會短暫顯示上一週的課。初始值讀快取，命中就不必等。
+  const [loaded, setLoaded] = useState<{ weekKey: string; rows: SessionRow[] } | null>(
+    () => {
+      const hit = peekRange(week[0], week[6]);
+      return hit ? { weekKey, rows: hit } : null;
+    },
+  );
   const sessions = loaded?.weekKey === weekKey ? loaded.rows : null;
 
+  useEffect(() => subscribeInvalidate(() => setLoaded(null)), []);
+
   useEffect(() => {
+    if (sessions) return;
     let cancelled = false;
 
-    api<{ sessions: SessionRow[] }>(
-      `/api/coach/sessions?from=${week[0]}&to=${week[6]}`,
-      idToken,
-    )
-      .then((d) => {
-        if (!cancelled) setLoaded({ weekKey, rows: d.sessions });
+    fetchRange(idToken, week[0], week[6])
+      .then((rows) => {
+        if (!cancelled) setLoaded({ weekKey, rows });
       })
       .catch((err: unknown) => {
         if (!cancelled) setError((err as Error).message);
@@ -67,7 +59,7 @@ export default function DayView({ idToken }: { idToken: string }) {
     return () => {
       cancelled = true;
     };
-  }, [idToken, week, weekKey, attempt]);
+  }, [idToken, week, weekKey, sessions]);
 
   const byDay = useMemo(() => {
     const map = new Map<string, SessionRow[]>();
@@ -160,7 +152,7 @@ export default function DayView({ idToken }: { idToken: string }) {
               onToggle={() => setOpenId(openId === s.id ? null : s.id)}
               onChanged={() => {
                 setOpenId(null);
-                setAttempt((n) => n + 1);
+                invalidateSessions();
               }}
             />
           ))
