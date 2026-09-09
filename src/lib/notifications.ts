@@ -135,3 +135,84 @@ export async function renderMemberReminder(sessionId: string): Promise<string | 
 
   return lines.join("\n");
 }
+
+/**
+ * 教練收到的請假通知。
+ * 自動核准的只是告知；未達門檻的需要教練決定，文案要說清楚。
+ */
+export async function renderCoachLeave(leaveRequestId: string): Promise<string | null> {
+  const leave = await prisma.leaveRequest.findUnique({
+    where: { id: leaveRequestId },
+    select: {
+      status: true,
+      reason: true,
+      memberId: true,
+      session: {
+        select: {
+          coachId: true,
+          startAt: true,
+          durationMin: true,
+          participants: { select: { memberId: true } },
+        },
+      },
+    },
+  });
+  if (!leave) return null;
+
+  const link = await prisma.coachMember.findUnique({
+    where: {
+      coachId_memberId: { coachId: leave.session.coachId, memberId: leave.memberId },
+    },
+    select: { displayName: true },
+  });
+  const name = link?.displayName ?? "某位學員";
+
+  const when = `${fmt(leave.session.startAt, "M/d")}（${weekdayZh(leave.session.startAt)}）${fmtTimeRange(leave.session.startAt, leave.session.durationMin)}`;
+
+  if (leave.status === "auto_approved") {
+    const others = leave.session.participants.length;
+    return [
+      "【學員請假】",
+      "",
+      `${name} 已請假`,
+      when,
+      leave.reason ? `原因：${leave.reason}` : null,
+      "",
+      others > 0 ? `這堂課還有 ${others} 位學員。` : "這堂課已無人參加，已自動取消。",
+    ]
+      .filter((l) => l !== null)
+      .join("\n");
+  }
+
+  return [
+    "【請假待確認】",
+    "",
+    `${name} 申請請假`,
+    when,
+    leave.reason ? `原因：${leave.reason}` : null,
+    "",
+    "已超過你設定的請假期限，請到下方選單的「請假通知」決定是否同意。",
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
+}
+
+/** 排入教練的請假通知。即時送出。 */
+export async function enqueueCoachLeave(
+  db: Db,
+  leaveRequestId: string,
+  sessionId: string,
+  coachLineUserId: string,
+): Promise<void> {
+  await db.notification.createMany({
+    data: [
+      {
+        targetLineUserId: coachLineUserId,
+        type: "coach_leave",
+        payload: { leaveRequestId },
+        sendAt: new Date(),
+        sessionId,
+      },
+    ],
+  });
+}

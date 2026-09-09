@@ -1,40 +1,35 @@
 "use client";
 
+import ContactCoaches from "./contact-coaches";
+import MemberSessions from "./member-sessions";
 import { Hint, Screen, Title } from "../ui";
 
 export default function MemberApp({
+  idToken,
   memberName,
   page,
 }: {
+  idToken: string;
   memberName: string;
   page: string | null;
 }) {
   switch (page) {
-    case "leave":
-      return <Placeholder title="請假" note="請假功能開發中。" />;
-
     case "contact":
-      // 學員可能同時屬於多位教練，此頁需動態列出各教練的官方帳號（SPEC.md §7）。
-      return <Placeholder title="聯絡教練" note="開發中。" />;
+      return <ContactCoaches idToken={idToken} />;
 
     case "profile":
-      return <Placeholder title="個人設定" note="開發中。" />;
-
-    default:
       return (
         <Screen>
           <Title>{memberName}</Title>
-          <Hint>課表查詢與請假功能開發中，完成後會出現在這裡。</Hint>
+          <Hint>
+            目前顯示給教練的名字是「{memberName}」。需要修改請直接跟教練說。
+          </Hint>
         </Screen>
       );
-  }
-}
 
-function Placeholder({ title, note }: { title: string; note: string }) {
-  return (
-    <Screen>
-      <Title>{title}</Title>
-      <Hint>{note}</Hint>
-    </Screen>
-  );
+    // 「我的課表」與「請假」都導到同一份清單——請假本來就是從某堂課發起的，
+    // 分成兩個畫面只會讓學員多繞一次。
+    default:
+      return <MemberSessions idToken={idToken} />;
+  }
 }

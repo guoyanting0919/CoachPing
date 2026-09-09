@@ -152,7 +152,13 @@ export default function LiffClient() {
   }
 
   if (session.role === "member") {
-    return <MemberApp memberName={session.member.displayName} page={page} />;
+    return (
+      <MemberApp
+        idToken={idToken}
+        memberName={session.member.displayName}
+        page={page}
+      />
+    );
   }
 
   const invite = session.invite;

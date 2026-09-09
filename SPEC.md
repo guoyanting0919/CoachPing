@@ -219,14 +219,19 @@ LIFF 前端傳來的 `userId` **一律不可信任**——那只是一段 JSON�
         │
         ├─ 距上課 >= coaches.leave_deadline_hours (預設 24)
         │     → leave_requests.status = auto_approved
-        │     → sessions.status = cancelled
+        │     → 移除該學員的 session_participants，刪掉他自己那則未送出的提醒
+        │     → 若這堂課已無人剩下 → sessions.status = cancelled
         │     → 推播 coach_leave 通知教練（僅告知，不需處理）
         │
         └─ 距上課 < 門檻
               → leave_requests.status = pending
-              → 推播 coach_leave 通知教練（附批准／拒絕按鈕）
-              → 教練批准 → approved，session cancelled，推播學員
+              → 推播 coach_leave 通知教練（需教練決定）
+              → 教練批准 → approved，同上處理參與者，推播學員
               → 教練拒絕 → rejected，session 維持 scheduled，推播學員
+
+**請假取消的是「該學員在該堂課的參與」，不是整堂課。** 一堂課最多 3 人，
+小明請假時小華那堂課還是要上；只有當一堂課沒有人剩下時才整堂標記取消。
+連帶只刪除請假者自己那則尚未送出的提醒，其他參與者的照舊。
 ```
 
 **補課不做。** 請假即取消，教練需要補課就自己再排一堂新的。
@@ -337,7 +342,7 @@ Vercel Hobby 方案的內建 cron 僅支援每日一次，故排程走外部服�
 | 3 | 邀請學員 + 學員註冊 + 關聯建立 ✅ | 8h |
 | 4 | **排課 UI**（單堂 + 連續 2～12 週） ✅ | 16h |
 | 5 | 通知佇列 + cron + 課前提醒 ✅ | 8h |
-| 6 | 學員課表 + 請假流程 | 10h |
+| 6 | 學員課表 + 請假流程 ✅ | 10h |
 | 7 | 教練每日彙總 + 請假審核 | 6h |
 | 8 | 異動即時推播 | 2h |
 | 9 | iCal 訂閱 | 3h |

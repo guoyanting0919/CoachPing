@@ -1,5 +1,5 @@
 import { lineClient } from "@/lib/line";
-import { renderMemberReminder } from "@/lib/notifications";
+import { renderCoachLeave, renderMemberReminder } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -25,6 +25,7 @@ type Claimed = {
   type: string;
   targetLineUserId: string;
   sessionId: string | null;
+  payload: unknown;
   attempts: number;
 };
 
@@ -65,6 +66,7 @@ export async function POST(req: Request): Promise<Response> {
       type::text AS type,
       target_line_user_id AS "targetLineUserId",
       session_id AS "sessionId",
+      payload,
       attempts
   `;
 
@@ -125,6 +127,11 @@ async function renderText(n: Claimed): Promise<string | null> {
   switch (n.type) {
     case "member_reminder":
       return n.sessionId ? renderMemberReminder(n.sessionId) : null;
+
+    case "coach_leave": {
+      const id = (n.payload as { leaveRequestId?: string } | null)?.leaveRequestId;
+      return id ? renderCoachLeave(id) : null;
+    }
     default:
       console.warn("[cron] 未知的通知類型:", n.type);
       return null;
