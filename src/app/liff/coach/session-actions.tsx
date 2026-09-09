@@ -43,7 +43,11 @@ export default function SessionActions({
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(data.error ?? `操作失敗（${res.status}）`);
+        setError(
+          data.error === "past_date"
+            ? "不能把課改到今天之前。"
+            : (data.error ?? `操作失敗（${res.status}）`),
+        );
         return;
       }
       onChanged();

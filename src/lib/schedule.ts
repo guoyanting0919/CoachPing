@@ -54,3 +54,11 @@ export const MAX_WEEKS = 12;
 export const WEEK_OPTIONS = Array.from({ length: MAX_WEEKS - 1 }, (_, i) => i + 2);
 /** 一堂課最多 3 人：1 對 1、1 對 2、1 對 3，不做團體課（SPEC.md §4）。 */
 export const MAX_PARTICIPANTS = 3;
+
+/**
+ * 該日期是否早於今天（台北時間）。課程不能排到過去——
+ * 排了也沒有意義，通知不會發、學員也回不到過去。
+ */
+export function isPastDate(ymdStr: string, today: string): boolean {
+  return ymdStr < today;
+}

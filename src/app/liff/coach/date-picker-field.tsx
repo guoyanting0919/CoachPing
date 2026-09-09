@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import ScheduleCalendar from "./schedule-calendar";
-import { fmt, weekdayZh } from "@/lib/time";
+import { fmt, weekdayZh, ymd } from "@/lib/time";
 
 /**
  * 上課日期選擇。刻意不用原生 date input：
@@ -19,6 +19,8 @@ export default function DatePickerField({
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
+  // 課程不能排到過去。
+  const today = ymd(new Date());
 
   const shown = new Date(`${value}T00:00:00Z`);
 
@@ -59,7 +61,12 @@ export default function DatePickerField({
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 py-4">
-            <ScheduleCalendar idToken={idToken} selected={draft} onSelect={setDraft} />
+            <ScheduleCalendar
+              idToken={idToken}
+              selected={draft}
+              onSelect={setDraft}
+              minDate={today}
+            />
           </div>
         </div>
       ) : null}

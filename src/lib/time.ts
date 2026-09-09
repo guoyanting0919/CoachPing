@@ -42,3 +42,15 @@ export function fmtSession(date: Date): string {
 export function ymd(date: Date): string {
   return fmt(date, "yyyy-MM-dd");
 }
+
+/** 「12:00–13:30」。只顯示開始時間，教練得自己心算課上到幾點。 */
+export function fmtTimeRange(start: Date, durationMin: number): string {
+  const end = new Date(start.getTime() + durationMin * 60_000);
+  return `${fmt(start, "HH:mm")}–${fmt(end, "HH:mm")}`;
+}
+
+/** 「9/12」 */
+export function fmtMonthDay(ymdStr: string): string {
+  const [, m, d] = ymdStr.split("-");
+  return `${Number(m)}/${Number(d)}`;
+}

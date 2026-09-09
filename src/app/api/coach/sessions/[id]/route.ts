@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { requireCoach } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { taipeiDateTime } from "@/lib/time";
+import { taipeiDateTime, ymd } from "@/lib/time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +47,11 @@ export async function PATCH(
 
   if (body.scope === "single") {
     const date = body.date ?? ymdInTaipei(session.startAt);
+
+    if (date < ymd(new Date())) {
+      return Response.json({ error: "past_date" }, { status: 400 });
+    }
+
     const time = body.time ?? hhmmInTaipei(session.startAt);
 
     await prisma.session.update({

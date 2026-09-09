@@ -27,6 +27,12 @@ import { fmt, fmtSession, weekdayZh, ymd } from "@/lib/time";
 type MemberRow = { id: string; name: string; linked: boolean };
 type ListResult = { members: MemberRow[] };
 
+const ERROR_MESSAGES: Record<string, string> = {
+  past_date: "不能把課排到今天之前。",
+  member_not_found: "選到的學員不存在或已停用，請重新選擇。",
+  invalid_body: "資料格式有誤，請確認後重試。",
+};
+
 export default function ScheduleForm({ idToken }: { idToken: string }) {
   const [members, setMembers] = useState<MemberRow[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -93,7 +99,7 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
       }
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(data.error ?? `建立失敗（${res.status}）`);
+        setError(ERROR_MESSAGES[data.error ?? ""] ?? `建立失敗（${res.status}）`);
         return;
       }
 

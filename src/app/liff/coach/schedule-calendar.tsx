@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import type { SessionRow } from "./day-view";
-import { fmt, ymd } from "@/lib/time";
+import { fmtMonthDay, fmtTimeRange, ymd } from "@/lib/time";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEKDAY_HEADS = ["一", "二", "三", "四", "五", "六", "日"];
@@ -38,10 +38,13 @@ export default function ScheduleCalendar({
   idToken,
   selected,
   onSelect,
+  /** 早於此日期的格子不可選。選日期時傳今天；純瀏覽時不傳。 */
+  minDate,
 }: {
   idToken: string;
   selected: string | null;
   onSelect: (date: string) => void;
+  minDate?: string;
 }) {
   const today = useMemo(() => ymd(new Date()), []);
   const [anchor, setAnchor] = useState(
@@ -105,25 +108,29 @@ export default function ScheduleCalendar({
           const count = byDay.get(d)?.length ?? 0;
           const isToday = d === today;
           const isSelected = d === selected;
+          const disabled = minDate !== undefined && d < minDate;
 
           return (
             <button
               key={d}
               type="button"
+              disabled={disabled}
               onClick={() => onSelect(d)}
               className={`flex h-10 flex-col items-center justify-center rounded-lg ${
                 isSelected ? "bg-[#06C755] text-white" : ""
-              }`}
+              } ${disabled ? "cursor-not-allowed" : ""}`}
             >
               <span
                 className={`text-sm ${
                   isSelected
                     ? "font-semibold"
-                    : !inMonth
-                      ? "text-slate-300"
-                      : isToday
-                        ? "font-bold text-[#06C755]"
-                        : "text-slate-700"
+                    : disabled
+                      ? "text-slate-200 line-through"
+                      : !inMonth
+                        ? "text-slate-300"
+                        : isToday
+                          ? "font-bold text-[#06C755]"
+                          : "text-slate-700"
                 }`}
               >
                 {Number(d.slice(8))}
@@ -145,7 +152,7 @@ export default function ScheduleCalendar({
       {selected ? (
         <div className="mt-3 border-t border-slate-100 pt-3">
           <p className="mb-1 text-xs font-medium text-slate-500">
-            {Number(selected.slice(5))}/{Number(selected.slice(8))} 這天的課
+            {fmtMonthDay(selected)} 這天的課
           </p>
           {daySessions.length === 0 ? (
             <p className="text-xs text-slate-400">沒有課</p>
@@ -153,8 +160,9 @@ export default function ScheduleCalendar({
             <ul className="space-y-1">
               {daySessions.map((s) => (
                 <li key={s.id} className="flex gap-2 text-xs text-slate-600">
-                  <span className="font-medium text-slate-900">
-                    {fmt(new Date(s.startAt), "HH:mm")}
+                  {/* 顯示結束時間，教練才不用自己算課上到幾點。 */}
+                  <span className="shrink-0 font-medium text-slate-900">
+                    {fmtTimeRange(new Date(s.startAt), s.durationMin)}
                   </span>
                   <span className="truncate">
                     {s.participants.map((p) => p.name).join("、")}

@@ -9,7 +9,7 @@ import {
   generateStartTimes,
   overlaps,
 } from "@/lib/schedule";
-import { taipeiDateTime } from "@/lib/time";
+import { taipeiDateTime, ymd } from "@/lib/time";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -97,6 +97,11 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: "invalid_body" }, { status: 400 });
   }
   const body = parsed.data;
+
+  // 課程不能排到過去。前端月曆已擋，但停留很久的分頁仍可能送出昨天的日期。
+  if (body.startDate < ymd(new Date())) {
+    return Response.json({ error: "past_date" }, { status: 400 });
+  }
 
   // 只能為自己的學員排課。少了這道，任何教練都能替別人的學員排課。
   const links = await prisma.coachMember.findMany({
