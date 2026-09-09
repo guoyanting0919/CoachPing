@@ -1,6 +1,7 @@
 "use client";
 
 import DayView from "./day-view";
+import LeaveReview from "./leave-review";
 import MembersList from "./members-list";
 import ScheduleForm from "./schedule-form";
 import { Hint, Screen, Title } from "../ui";
@@ -24,7 +25,7 @@ export default function CoachApp({
       return <ScheduleForm idToken={idToken} />;
 
     case "leaves":
-      return <Placeholder title="請假通知" note="請假功能完成後啟用。" />;
+      return <LeaveReview idToken={idToken} />;
 
     case "settings":
       return <Placeholder title="設定" note="開發中。" />;

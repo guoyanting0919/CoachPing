@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { prisma } from "./prisma";
-import { fmt, fmtTimeRange, weekdayZh } from "./time";
+import { buildCoachTodayText } from "./today-schedule";
+import { fmt, fmtTimeRange, taipeiDateTime, weekdayZh, ymd } from "./time";
 
 /**
  * 推播佇列（SPEC.md §5）。
@@ -210,6 +211,129 @@ export async function enqueueCoachLeave(
         targetLineUserId: coachLineUserId,
         type: "coach_leave",
         payload: { leaveRequestId },
+        sendAt: new Date(),
+        sessionId,
+      },
+    ],
+  });
+}
+
+/** 教練每日彙總的送出時間（台北時間的整點）。 */
+export const DAILY_DIGEST_HOUR = 8;
+
+/**
+ * 排入教練的今日課表彙總（SPEC.md §5）。
+ *
+ * 刻意不另外設一支 cron：多一個排程就多一個會默默失效的東西，而且
+ * 還要在外部服務裡再設一次時區。改為由每分鐘的派送順便檢查，
+ * 以「今天是否已排過」保證冪等。
+ *
+ * 只為今天有課的教練排——沒課的人不需要收到「你今天沒有課」。
+ */
+export async function ensureDailyDigests(now: Date): Promise<number> {
+  if (Number(fmt(now, "H")) !== DAILY_DIGEST_HOUR) return 0;
+
+  const today = ymd(now);
+  const dayStart = taipeiDateTime(today, "00:00");
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+  const coaches = await prisma.coach.findMany({
+    where: {
+      sessions: { some: { status: "scheduled", startAt: { gte: now, lt: dayEnd } } },
+    },
+    select: { id: true, lineUserId: true },
+  });
+  if (coaches.length === 0) return 0;
+
+  // 今天已經排過的就跳過。派送每分鐘跑一次，這道檢查是防重複的關鍵。
+  const already = await prisma.notification.findMany({
+    where: {
+      type: "coach_daily",
+      sendAt: { gte: dayStart, lt: dayEnd },
+      targetLineUserId: { in: coaches.map((c) => c.lineUserId) },
+    },
+    select: { targetLineUserId: true },
+  });
+  const done = new Set(already.map((a) => a.targetLineUserId));
+
+  const rows = coaches
+    .filter((c) => !c.lineUserId.startsWith("detached:") && !done.has(c.lineUserId))
+    .map((c) => ({
+      targetLineUserId: c.lineUserId,
+      type: "coach_daily" as const,
+      payload: { coachId: c.id },
+      sendAt: now,
+    }));
+
+  if (rows.length === 0) return 0;
+
+  await prisma.notification.createMany({ data: rows });
+  return rows.length;
+}
+
+/** 教練的每日彙總內容，與 postback 查詢的今日課表共用同一份。 */
+export async function renderCoachDaily(coachId: string): Promise<string | null> {
+  return buildCoachTodayText(coachId);
+}
+
+/** 學員收到的課程異動通知。 */
+export async function renderMemberChange(
+  payload: { kind?: string; leaveRequestId?: string } | null,
+): Promise<string | null> {
+  if (!payload?.kind) return null;
+
+  if (payload.kind === "leave_approved" || payload.kind === "leave_rejected") {
+    if (!payload.leaveRequestId) return null;
+
+    const leave = await prisma.leaveRequest.findUnique({
+      where: { id: payload.leaveRequestId },
+      select: {
+        session: {
+          select: {
+            startAt: true,
+            durationMin: true,
+            coach: { select: { name: true } },
+          },
+        },
+      },
+    });
+    if (!leave) return null;
+
+    const when = `${fmt(leave.session.startAt, "M/d")}（${weekdayZh(leave.session.startAt)}）${fmtTimeRange(leave.session.startAt, leave.session.durationMin)}`;
+
+    return payload.kind === "leave_approved"
+      ? ["【請假已同意】", "", when, `${leave.session.coach.name} 教練已同意你的請假。`].join("\n")
+      : [
+          "【請假未通過】",
+          "",
+          when,
+          `${leave.session.coach.name} 教練未同意這次請假，這堂課仍照原定時間進行。`,
+          "",
+          "有疑問請直接聯絡教練。",
+        ].join("\n");
+  }
+
+  return null;
+}
+
+/** 排入學員的異動通知，即時送出。 */
+export type MemberChangePayload = {
+  kind: "leave_approved" | "leave_rejected" | "cancelled" | "rescheduled";
+  leaveRequestId?: string;
+};
+
+export async function enqueueMemberChange(
+  db: Db,
+  targetLineUserId: string,
+  sessionId: string,
+  payload: MemberChangePayload,
+): Promise<void> {
+  await db.notification.createMany({
+    data: [
+      {
+        targetLineUserId,
+        type: "member_change",
+        payload,
         sendAt: new Date(),
         sessionId,
       },
