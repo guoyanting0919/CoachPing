@@ -85,3 +85,55 @@ export function ErrorBox({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+/** 可切換的圓角標籤。用於選學員、選星期，點擊面積要夠大。 */
+export function Chip({
+  active,
+  onClick,
+  disabled,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+        active
+          ? "bg-[#06C755] text-white"
+          : disabled
+            ? "bg-slate-100 text-slate-300"
+            : "bg-white text-slate-700 ring-1 ring-slate-200"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function Section({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <h2 className="text-sm font-semibold text-slate-700">{title}</h2>
+      {hint ? <p className="mt-0.5 text-xs text-slate-400">{hint}</p> : null}
+      <div className="mt-2">{children}</div>
+    </section>
+  );
+}
+
+export function Card({ children }: { children: React.ReactNode }) {
+  return <div className="rounded-2xl bg-white p-4 shadow-sm">{children}</div>;
+}

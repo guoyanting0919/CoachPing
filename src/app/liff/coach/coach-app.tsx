@@ -1,7 +1,9 @@
 "use client";
 
+import DayView from "./day-view";
 import InviteMember from "./invite-member";
 import MembersList from "./members-list";
+import ScheduleForm from "./schedule-form";
 import { Hint, Screen, Title } from "../ui";
 
 /** Rich Menu 各按鈕帶的 ?p= 參數對應到這裡的畫面（SPEC.md §7）。 */
@@ -20,10 +22,10 @@ export default function CoachApp({
       return <MembersList idToken={idToken} />;
 
     case "today":
-      return <Placeholder title="今日課表" note="排課功能完成後啟用。" />;
+      return <DayView idToken={idToken} />;
 
     case "schedule":
-      return <Placeholder title="排課" note="開發中。" />;
+      return <ScheduleForm idToken={idToken} />;
 
     case "leaves":
       return <Placeholder title="請假通知" note="請假功能完成後啟用。" />;
@@ -32,7 +34,7 @@ export default function CoachApp({
       return <Placeholder title="設定" note="開發中。" />;
 
     default:
-      return <MembersList idToken={idToken} />;
+      return <DayView idToken={idToken} />;
   }
 }
 

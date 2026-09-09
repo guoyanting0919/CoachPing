@@ -41,7 +41,8 @@ async function detach() {
     where: { NOT: { lineUserId: { startsWith: "detached:" } } },
   });
   if (!coach) {
-    console.error("找不到已綁定的教練。可能已經 detach 過了，執行 status 確認。");
+    console.error("找不到已綁定的教練——你已經是 detach 狀態了。");
+    console.error("要切回教練請執行：npx tsx --env-file=.env scripts/dev-role.ts restore");
     process.exit(1);
   }
 

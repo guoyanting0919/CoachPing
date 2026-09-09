@@ -25,3 +25,20 @@ export function fromTaipei(wallClock: Date): Date {
 export function taipeiDateTime(dateStr: string, timeStr: string): Date {
   return fromZonedTime(`${dateStr}T${timeStr}:00`, TZ);
 }
+
+const WEEKDAY_ZH = ["日", "一", "二", "三", "四", "五", "六"] as const;
+
+/** 中文星期。date-fns 的中文 locale 只為了這七個字不值得引入。 */
+export function weekdayZh(date: Date): string {
+  return WEEKDAY_ZH[Number(fmt(date, "i")) % 7];
+}
+
+/** 「10/14 (二) 19:00」 */
+export function fmtSession(date: Date): string {
+  return `${fmt(date, "M/d")} (${weekdayZh(date)}) ${fmt(date, "HH:mm")}`;
+}
+
+/** 台北時區下的 YYYY-MM-DD。 */
+export function ymd(date: Date): string {
+  return fmt(date, "yyyy-MM-dd");
+}
