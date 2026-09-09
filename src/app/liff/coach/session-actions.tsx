@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { SessionRow } from "./day-view";
-import { Button, ErrorBox } from "../ui";
+import { Button, DateInput, ErrorBox, TimeSelect } from "../ui";
 import { fmt, ymd } from "@/lib/time";
 
 type Mode = "menu" | "reschedule" | "cancel";
@@ -70,20 +70,10 @@ export default function SessionActions({
         {/* 改整個系列時只換時間、不換日期——教練說「以後都改成 20:00」
             是這個意思，而不是把整串課往後推。 */}
         {scope === "single" ? (
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-base"
-          />
+          <DateInput value={date} onChange={(e) => setDate(e.target.value)} />
         ) : null}
 
-        <input
-          type="time"
-          value={time}
-          onChange={(e) => setTime(e.target.value)}
-          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-base"
-        />
+        <TimeSelect value={time} onChange={setTime} />
 
         {isSeries ? (
           <ScopePicker

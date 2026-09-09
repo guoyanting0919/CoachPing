@@ -3,16 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import MemberPicker from "./member-picker";
+import MonthCalendar from "./month-calendar";
 import {
   Button,
   Card,
   Chip,
   ErrorBox,
   Hint,
+  DateInput,
   Screen,
   Section,
   Select,
-  TextInput,
+  TimeSelect,
   Title,
 } from "../ui";
 import {
@@ -156,7 +158,11 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
     <Screen>
       <Title>排課</Title>
 
-      <div className="mt-5 space-y-6 pb-32">
+      <div className="mt-4">
+        <MonthCalendar idToken={idToken} />
+      </div>
+
+      <div className="mt-6 space-y-6 pb-32">
         <Section title="學員" hint={`最多 ${MAX_PARTICIPANTS} 位`}>
           <MemberPicker
             members={members}
@@ -167,21 +173,12 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
         </Section>
 
         <Section title={weekdays.length > 0 ? "從哪天開始" : "上課日期"}>
-          <TextInput
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-          />
+          <DateInput value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         </Section>
 
         <Section title="時間">
-          <div className="flex gap-3">
-            <input
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900"
-            />
+          <div className="flex items-center gap-3">
+            <TimeSelect value={time} onChange={setTime} />
             <Select
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
