@@ -7,7 +7,6 @@ import MonthCalendar from "./month-calendar";
 import {
   Button,
   Card,
-  Chip,
   ErrorBox,
   Hint,
   DateInput,
@@ -28,12 +27,9 @@ import { fmtSession, ymd } from "@/lib/time";
 type MemberRow = { id: string; name: string; linked: boolean };
 type ListResult = { members: MemberRow[] };
 
-const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
-
 export default function ScheduleForm({ idToken }: { idToken: string }) {
   const [members, setMembers] = useState<MemberRow[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
-  const [weekdays, setWeekdays] = useState<number[]>([]);
   const [time, setTime] = useState("19:00");
   const [duration, setDuration] = useState(60);
   const [weeks, setWeeks] = useState(DEFAULT_WEEKS);
@@ -62,22 +58,11 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
   const preview = useMemo(() => {
     if (!startDate) return null;
     try {
-      return generateStartTimes({
-        startDate,
-        weekdays,
-        time,
-        weeks: weekdays.length === 0 ? 1 : weeks,
-      });
+      return generateStartTimes({ startDate, time, weeks });
     } catch {
       return null;
     }
-  }, [startDate, weekdays, time, weeks]);
-
-  function toggleWeekday(d: number) {
-    setWeekdays((prev) =>
-      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort(),
-    );
-  }
+  }, [startDate, time, weeks]);
 
   async function submit(force: boolean) {
     setSubmitting(true);
@@ -94,7 +79,6 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
         body: JSON.stringify({
           memberIds: selected,
           startDate,
-          weekdays,
           time,
           weeks,
           durationMin: duration,
@@ -172,7 +156,7 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
           />
         </Section>
 
-        <Section title={weekdays.length > 0 ? "從哪天開始" : "上課日期"}>
+        <Section title="上課日期" hint="重複時的星期幾由這個日期決定">
           <DateInput value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         </Section>
 
@@ -192,27 +176,15 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
           </div>
         </Section>
 
-        <Section title="重複" hint="不選任何一天就是單次課程">
-          <div className="flex flex-wrap gap-2">
-            {WEEKDAYS.map((label, d) => (
-              <Chip key={d} active={weekdays.includes(d)} onClick={() => toggleWeekday(d)}>
-                {label}
-              </Chip>
+        <Section title="重複">
+          <Select value={weeks} onChange={(e) => setWeeks(Number(e.target.value))}>
+            <option value={1}>單堂課程</option>
+            {WEEK_OPTIONS.map((w) => (
+              <option key={w} value={w}>
+                連續 {w} 週
+              </option>
             ))}
-          </div>
-
-          {weekdays.length > 0 ? (
-            <div className="mt-3 flex items-center gap-2">
-              <span className="text-sm text-slate-600">持續</span>
-              <Select value={weeks} onChange={(e) => setWeeks(Number(e.target.value))}>
-                {WEEK_OPTIONS.map((w) => (
-                  <option key={w} value={w}>
-                    {w} 週
-                  </option>
-                ))}
-              </Select>
-            </div>
-          ) : null}
+          </Select>
         </Section>
 
         {error ? <ErrorBox>{error}</ErrorBox> : null}

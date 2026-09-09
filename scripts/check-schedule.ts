@@ -4,24 +4,19 @@ import { fmtSession } from "../src/lib/time";
 
 function show(title: string, dates: Date[]) {
   console.log(`\n${title}  共 ${dates.length} 堂`);
-  for (const d of dates.slice(0, 8)) console.log("  ", fmtSession(d));
-  if (dates.length > 8) console.log(`   … 其餘 ${dates.length - 8} 堂`);
+  for (const d of dates) console.log("  ", fmtSession(d));
 }
 
-// 2026-09-09 是星期三
+show("單堂：9/9 19:00", generateStartTimes({ startDate: "2026-09-09", time: "19:00", weeks: 1 }));
+
 show(
-  "單次：9/9 19:00",
-  generateStartTimes({ startDate: "2026-09-09", weekdays: [], time: "19:00", weeks: 1 }),
+  "9/9（週三）起連續 3 週 19:00 —— 應為 9/9、9/16、9/23，全部是週三",
+  generateStartTimes({ startDate: "2026-09-09", time: "19:00", weeks: 3 }),
 );
 
 show(
-  "每週二、四 19:00，共 4 週（起始 9/9 週三）",
-  generateStartTimes({ startDate: "2026-09-09", weekdays: [2, 4], time: "19:00", weeks: 4 }),
-);
-
-show(
-  "每週三 07:30，共 3 週（起始日就是週三，應含當天）",
-  generateStartTimes({ startDate: "2026-09-09", weekdays: [3], time: "07:30", weeks: 3 }),
+  "跨月：9/29（週二）起連續 3 週 07:30",
+  generateStartTimes({ startDate: "2026-09-29", time: "07:30", weeks: 3 }),
 );
 
 console.log("\n重疊判斷：");

@@ -78,9 +78,8 @@ export async function GET(req: Request): Promise<Response> {
 const createSchema = z.object({
   memberIds: z.array(z.string()).min(1).max(MAX_PARTICIPANTS),
   startDate: z.string().regex(YMD),
-  /** 空陣列 = 單次課程。 */
-  weekdays: z.array(z.number().int().min(0).max(6)).max(7),
   time: z.string().regex(HHMM),
+  /** 1 = 單堂課程。星期幾由 startDate 決定，不另外指定。 */
   weeks: z.number().int().min(1).max(MAX_WEEKS).default(DEFAULT_WEEKS),
   durationMin: z.number().int().min(15).max(240).optional(),
   location: z.string().trim().max(100).optional(),
@@ -111,9 +110,8 @@ export async function POST(req: Request): Promise<Response> {
   const durationMin = body.durationMin ?? coach.defaultDuration;
   const startTimes = generateStartTimes({
     startDate: body.startDate,
-    weekdays: body.weekdays,
     time: body.time,
-    weeks: body.weekdays.length === 0 ? 1 : body.weeks,
+    weeks: body.weeks,
   });
 
   if (!body.force) {
@@ -127,8 +125,8 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // 同一次排課視為一個系列，之後可依 seriesId 批次改期或取消。
-  // 單次課程沒有系列可言，維持 null。
-  const seriesId = body.weekdays.length === 0 ? null : randomUUID();
+  // 單堂課程沒有系列可言，維持 null。
+  const seriesId = startTimes.length > 1 ? randomUUID() : null;
 
   await prisma.$transaction(
     startTimes.map((startAt) =>
