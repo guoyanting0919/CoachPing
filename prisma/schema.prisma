@@ -112,6 +112,22 @@ model CoachMember {
   @@map("coach_members")
 }
 
+/// 教練邀請碼。MVP 階段由開發者手動產生後私下給教練（SPEC.md §3.1），
+/// 不做教練自助註冊。與 Invite（學員邀請）語義不同，故分表。
+model CoachInvite {
+  token String @id @default(uuid())
+  /// 自用標記，方便辨識這組碼發給了誰。
+  label     String
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  /// 使用後回填，方便追溯。
+  coachId String? @map("coach_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("coach_invites")
+}
+
 /// 一次性邀請連結，綁定特定學員記錄（SPEC.md §3.2）。
 model Invite {
   token    String    @id @default(uuid())

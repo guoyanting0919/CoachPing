@@ -8,6 +8,11 @@ const serverSchema = z.object({
   DATABASE_URL: z.string().min(1),
   LINE_CHANNEL_SECRET: z.string().min(1),
   LINE_CHANNEL_ACCESS_TOKEN: z.string().min(1),
+
+  // LINE Login channel 的 Channel ID。驗證 LIFF ID token 時必須帶入，
+  // 否則無法確認 token 是簽給本應用的。
+  LINE_LOGIN_CHANNEL_ID: z.string().min(1),
+
   APP_BASE_URL: z.url(),
   CRON_SECRET: z.string().min(1),
 

@@ -16,6 +16,12 @@ export async function POST(req: Request): Promise<Response> {
 
   const { events } = JSON.parse(rawBody) as { events: webhook.Event[] };
 
+  // 除錯用：Vercel Logs 中看到這行即代表 LINE 確實打到了本端點且簽章正確。
+  console.log(
+    `[webhook] 收到 ${events.length} 個事件:`,
+    events.map((e) => e.type).join(", "),
+  );
+
   // LINE 要求 webhook 快速回應，且失敗會重送。逐一處理但吞掉個別錯誤，
   // 避免一個事件的失敗導致整批重送造成重複推播。
   await Promise.all(
@@ -23,6 +29,8 @@ export async function POST(req: Request): Promise<Response> {
       try {
         await handleEvent(event);
       } catch (err) {
+        // 例如 access token 失效導致 reply 失敗。必須印出完整內容，
+        // 否則會靜默吞掉——使用者只會看到「沒有任何回覆」。
         console.error("[webhook] 事件處理失敗", event.type, err);
       }
     }),

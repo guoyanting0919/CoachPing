@@ -101,7 +101,15 @@ coach_members
   created_at            timestamptz
   primary key (coach_id, member_id)
 
-invites
+coach_invites                              -- 教練邀請碼，由開發者以腳本產生
+  token                 text pk
+  label                 text                 -- 自用標記，辨識發給了誰
+  expires_at            timestamptz
+  used_at               timestamptz null
+  coach_id              uuid null            -- 使用後回填，方便追溯
+  created_at            timestamptz
+
+invites                                    -- 學員邀請碼，綁定特定學員記錄
   token                 text pk
   coach_id              uuid fk
   member_id             uuid fk
@@ -144,6 +152,13 @@ notifications
   error                 text null
   created_at            timestamptz
 ```
+
+### 身分驗證規則
+
+LIFF 前端傳來的 `userId` **一律不可信任**——那只是一段 JSON，任何人都能偽造後直接
+呼叫 API 冒充他人。所有需要身分的 API 必須接收 `liff.getIDToken()` 的 ID token，
+交由 `POST https://api.line.me/oauth2/v2.1/verify` 驗證（需帶 LINE Login channel ID
+作為 `client_id`），以回傳的 `sub` 作為唯一可信的 userId。
 
 ### 資料模型規則
 
@@ -221,7 +236,11 @@ LINE Provider（單一）
 | 學員版 | `members` 已連結 | 我的課表｜請假／聯絡教練｜個人設定 |
 
 - 註冊完成時以 `POST /v2/bot/user/{userId}/richmenu` 個別綁定
-- 學員版「聯絡教練」跳轉 `coaches.oa_url`
+- 學員版「聯絡教練」**不可寫死網址**：Rich Menu 全體共用，而學員可能同時屬於多位教練、
+  每位教練的官方帳號不同。該按鈕導向 LIFF 的 `?p=contact` 頁面，由頁面依當前學員
+  動態列出其教練的 `oa_url`
+- Rich Menu 圖片由 `scripts/richmenu.ts` 以自繪 SVG 線條圖示產生後上傳。
+  不使用 emoji：emoji 樣貌取決於系統字型，不同機器產出不一致
 - **教練上手指引需提醒**：在他自己的 OA 設定自動回覆，引導「請假請點下方選單」。此事系統無法代勞。
 
 ### 介面
@@ -290,8 +309,8 @@ Vercel Hobby 方案的內建 cron 僅支援每日一次，故排程走外部服�
 
 | # | 項目 | 估時 |
 |---|---|---|
-| 1 | 專案骨架、LINE channel／LIFF 設定、webhook、資料表 | 8h |
-| 2 | 教練註冊 + Rich Menu 角色綁定 | 8h |
+| 1 | 專案骨架、LINE channel／LIFF 設定、webhook、資料表 ✅ | 8h |
+| 2 | 教練註冊 + Rich Menu 角色綁定 ✅ | 8h |
 | 3 | 邀請學員 + 學員註冊 + 關聯建立 | 8h |
 | 4 | **排課 UI**（單次 + 重複展開 12 週） | 16h |
 | 5 | 通知佇列 + cron + 課前提醒 | 8h |
