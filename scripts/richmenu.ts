@@ -152,6 +152,48 @@ async function dryRun(outDir: string) {
   }
 }
 
+/**
+ * 重新綁定所有使用者的選單。
+ *
+ * 刪除舊選單會讓已綁定的使用者失去選單，因此重建後必須綁回去。
+ * 同一個 LINE 帳號可能同時是教練與學員（coaches 與 members 的
+ * line_user_id 唯一性各自獨立），此時一律以教練為準——與
+ * /api/liff/session 的角色判定順序一致，否則教練會被綁成學員選單。
+ */
+async function rebindUsers(ids: Record<string, string>) {
+  const { prisma } = await import("../src/lib/prisma");
+  try {
+    const coaches = await prisma.coach.findMany({ select: { lineUserId: true } });
+    const coachIds = new Set(
+      coaches.map((c) => c.lineUserId).filter((id) => !id.startsWith("detached:")),
+    );
+
+    const members = await prisma.member.findMany({
+      where: { lineUserId: { not: null }, lineBlocked: false },
+      select: { lineUserId: true },
+    });
+
+    for (const lineUserId of coachIds) {
+      await lineFetch(`${API}/user/${lineUserId}/richmenu/${ids.coach}`, {
+        method: "POST",
+      }).catch((e) => console.warn(`  教練 ${lineUserId} 綁定失敗:`, e.message));
+    }
+
+    let memberCount = 0;
+    for (const m of members) {
+      if (!m.lineUserId || coachIds.has(m.lineUserId)) continue;
+      await lineFetch(`${API}/user/${m.lineUserId}/richmenu/${ids.member}`, {
+        method: "POST",
+      }).catch((e) => console.warn(`  學員 ${m.lineUserId} 綁定失敗:`, e.message));
+      memberCount++;
+    }
+
+    console.log(`✓ 已重新綁定 ${coachIds.size} 位教練、${memberCount} 位學員`);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 async function main() {
   const dryIndex = process.argv.indexOf("--dry");
   if (dryIndex !== -1) {
@@ -162,6 +204,16 @@ async function main() {
   if (!TOKEN || !LIFF_ID) {
     console.error("缺少 LINE_CHANNEL_ACCESS_TOKEN 或 NEXT_PUBLIC_LIFF_ID");
     process.exit(1);
+  }
+
+  // 只重新綁定，沿用現有選單。修正綁定錯誤時不必重建，避免 ID 又變動。
+  if (process.argv.includes("--rebind")) {
+    await rebindUsers({
+      unregistered: process.env.LINE_RICHMENU_UNREGISTERED ?? "",
+      coach: process.env.LINE_RICHMENU_COACH ?? "",
+      member: process.env.LINE_RICHMENU_MEMBER ?? "",
+    });
+    return;
   }
 
   // 重複執行時先清空，否則帳號上會累積一堆孤兒選單（上限 1000 組）。
@@ -232,29 +284,7 @@ async function main() {
 
   // 舊選單被刪除時，已綁定的使用者會連帶失去選單。重新綁回去，
   // 這支腳本才能安全地重複執行。
-  const { prisma } = await import("../src/lib/prisma");
-  try {
-    const coaches = await prisma.coach.findMany({ select: { lineUserId: true } });
-    const members = await prisma.member.findMany({
-      where: { lineUserId: { not: null }, lineBlocked: false },
-      select: { lineUserId: true },
-    });
-
-    for (const c of coaches) {
-      if (c.lineUserId.startsWith("detached:")) continue;
-      await lineFetch(`${API}/user/${c.lineUserId}/richmenu/${ids.coach}`, {
-        method: "POST",
-      }).catch((e) => console.warn(`  教練 ${c.lineUserId} 綁定失敗:`, e.message));
-    }
-    for (const m of members) {
-      await lineFetch(`${API}/user/${m.lineUserId}/richmenu/${ids.member}`, {
-        method: "POST",
-      }).catch((e) => console.warn(`  學員 ${m.lineUserId} 綁定失敗:`, e.message));
-    }
-    console.log(`✓ 已重新綁定 ${coaches.length} 位教練、${members.length} 位學員`);
-  } finally {
-    await prisma.$disconnect();
-  }
+  await rebindUsers(ids);
 
   console.log("\n把以下三行填進 .env 與 Vercel 環境變數：\n");
   console.log(`LINE_RICHMENU_UNREGISTERED="${ids.unregistered}"`);
