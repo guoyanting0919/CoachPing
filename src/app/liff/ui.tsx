@@ -138,20 +138,6 @@ export function Card({ children }: { children: React.ReactNode }) {
   return <div className="rounded-2xl bg-white p-4 shadow-sm">{children}</div>;
 }
 
-/**
- * 日期輸入。原生 date input 在 iOS 上有比容器還寬的內建尺寸，
- * 不加 block／min-w-0／appearance-none 會撐破版面。
- */
-export function DateInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      type="date"
-      className="block w-full min-w-0 appearance-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 outline-none focus:border-[#06C755]"
-    />
-  );
-}
-
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 /** 私教排課都落在整點或半點，開放到分鐘只會讓教練多滑很久。 */
 const MINUTES = ["00", "30"];
@@ -162,7 +148,7 @@ const MINUTES = ["00", "30"];
  * 擠成只剩箭頭。這裡改用內容寬度並禁止收縮。
  */
 const timeSelectClass =
-  "shrink-0 rounded-xl border border-slate-200 bg-white py-3 pl-3 pr-1 text-base text-slate-900 outline-none focus:border-[#06C755]";
+  "min-w-[5rem] shrink-0 rounded-xl border border-slate-200 bg-white py-3 pl-4 pr-2 text-base text-slate-900 outline-none focus:border-[#06C755]";
 
 export function TimeSelect({
   value,

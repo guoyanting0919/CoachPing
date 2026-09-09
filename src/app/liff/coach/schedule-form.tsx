@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import DatePickerField from "./date-picker-field";
 import MemberPicker from "./member-picker";
 import MonthCalendar from "./month-calendar";
 import {
@@ -9,7 +10,6 @@ import {
   Card,
   ErrorBox,
   Hint,
-  DateInput,
   Screen,
   Section,
   Select,
@@ -22,7 +22,7 @@ import {
   WEEK_OPTIONS,
   generateStartTimes,
 } from "@/lib/schedule";
-import { fmtSession, ymd } from "@/lib/time";
+import { fmt, fmtSession, weekdayZh, ymd } from "@/lib/time";
 
 type MemberRow = { id: string; name: string; linked: boolean };
 type ListResult = { members: MemberRow[] };
@@ -157,7 +157,7 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
         </Section>
 
         <Section title="上課日期" hint="重複時的星期幾由這個日期決定">
-          <DateInput value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <DatePickerField idToken={idToken} value={startDate} onChange={setStartDate} />
         </Section>
 
         <Section title="時間">
@@ -215,11 +215,24 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
       {/* 預覽與送出固定在底部，滑到哪都按得到。 */}
       <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 p-4 backdrop-blur">
         <div className="mx-auto max-w-md">
-          <p className="mb-2 text-center text-sm text-slate-600">
-            {preview?.length
-              ? `${fmtSession(preview[0])} 起，共 ${preview.length} 堂`
-              : "請選擇日期"}
-          </p>
+          {/* 重複時列出每一堂的確切日期。只寫「x/x 起，共 N 堂」教練得自己心算，
+              而排錯日期的代價是學員白跑一趟。 */}
+          <div className="mb-2 text-center">
+            {!preview?.length ? (
+              <p className="text-sm text-slate-500">請選擇日期</p>
+            ) : preview.length === 1 ? (
+              <p className="text-sm text-slate-700">{fmtSession(preview[0])}・單堂</p>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-slate-800">
+                  共 {preview.length} 堂・每週{weekdayZh(preview[0])} {time}
+                </p>
+                <p className="mt-1 max-h-14 overflow-y-auto text-xs leading-relaxed text-slate-500">
+                  {preview.map((d) => fmt(d, "M/d")).join("、")}
+                </p>
+              </>
+            )}
+          </div>
           <Button onClick={() => void submit(false)} disabled={!canSubmit}>
             {submitting ? "建立中…" : "建立課程"}
           </Button>

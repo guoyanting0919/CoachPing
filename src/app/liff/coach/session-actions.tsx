@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import type { SessionRow } from "./day-view";
-import { Button, DateInput, ErrorBox, TimeSelect } from "../ui";
+import DatePickerField from "./date-picker-field";
+import { Button, ErrorBox, TimeSelect } from "../ui";
 import { fmt, ymd } from "@/lib/time";
 
 type Mode = "menu" | "reschedule" | "cancel";
@@ -70,7 +71,7 @@ export default function SessionActions({
         {/* 改整個系列時只換時間、不換日期——教練說「以後都改成 20:00」
             是這個意思，而不是把整串課往後推。 */}
         {scope === "single" ? (
-          <DateInput value={date} onChange={(e) => setDate(e.target.value)} />
+          <DatePickerField idToken={idToken} value={date} onChange={setDate} />
         ) : null}
 
         <div className="flex items-center gap-2">
