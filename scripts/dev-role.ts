@@ -12,7 +12,7 @@
  */
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { prisma } from "../src/lib/prisma";
-import { bindRichMenu } from "../src/lib/line";
+import { bindRichMenu, resolveRole } from "../src/lib/line";
 
 const STASH = ".dev-role-stash.json";
 
@@ -56,15 +56,17 @@ async function detach() {
     data: { lineUserId: `detached:${coach.id}` },
   });
 
-  // 換回未註冊選單，否則手機上還是顯示教練版六格。
+  // 解除教練身分後，這個帳號可能仍是某位教練的學員（測試學員流程時的常態），
+  // 所以要重新判定角色而非一律綁「未註冊」選單。
+  const role = await resolveRole(coach.lineUserId);
   try {
-    await bindRichMenu(coach.lineUserId, "none");
+    await bindRichMenu(coach.lineUserId, role);
   } catch (err) {
     console.warn("Rich Menu 切換失敗（不影響資料）：", (err as Error).message);
   }
 
   console.log(`\n✓ 已解除「${coach.name}」的 LINE 綁定，原始值存於 ${STASH}`);
-  console.log("  現在可以用同一個 LINE 帳號開學員邀請連結測試註冊流程。");
+  console.log(`  目前角色：${role === "member" ? "學員" : "未註冊"}，選單已切換。`);
   console.log("  測完執行：npx tsx --env-file=.env scripts/dev-role.ts restore\n");
 }
 
