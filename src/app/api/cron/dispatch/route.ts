@@ -20,6 +20,14 @@ const MAX_ATTEMPTS = 3;
  *   curl -X POST https://<host>/api/cron/dispatch \
  *        -H "Authorization: Bearer $CRON_SECRET"
  */
+type Claimed = {
+  id: string;
+  type: string;
+  targetLineUserId: string;
+  sessionId: string | null;
+  attempts: number;
+};
+
 export async function POST(req: Request): Promise<Response> {
   const auth = req.headers.get("authorization");
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -37,34 +45,32 @@ export async function POST(req: Request): Promise<Response> {
     data: { status: "pending" },
   });
 
-  const candidates = await prisma.notification.findMany({
-    where: { status: "pending", sendAt: { lte: now } },
-    orderBy: { sendAt: "asc" },
-    take: BATCH_SIZE,
-    select: { id: true },
-  });
+  // 選取、取走、回傳合併成一次查詢。資料庫與函式可能位於不同區域，
+  // 每省一次往返就省一次跨區延遲。
+  //
+  // FOR UPDATE SKIP LOCKED 讓兩次 cron 重疊時，後者直接跳過已被鎖住的列，
+  // 而不是等待或重複取走——這是佇列取件的標準做法。
+  const claimed = await prisma.$queryRaw<Claimed[]>`
+    UPDATE notifications
+    SET status = 'sending'::"NotificationStatus", claimed_at = ${now}
+    WHERE id IN (
+      SELECT id FROM notifications
+      WHERE status = 'pending'::"NotificationStatus" AND send_at <= ${now}
+      ORDER BY send_at ASC
+      LIMIT ${BATCH_SIZE}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING
+      id,
+      type::text AS type,
+      target_line_user_id AS "targetLineUserId",
+      session_id AS "sessionId",
+      attempts
+  `;
 
-  if (candidates.length === 0) {
+  if (claimed.length === 0) {
     return Response.json({ reclaimed: reclaimed.count, claimed: 0, sent: 0, failed: 0 });
   }
-
-  // 先取走再送出。兩次 cron 重疊時，後者的條件更新會落空，不會重複推播。
-  const ids = candidates.map((c) => c.id);
-  await prisma.notification.updateMany({
-    where: { id: { in: ids }, status: "pending" },
-    data: { status: "sending", claimedAt: now },
-  });
-
-  const claimed = await prisma.notification.findMany({
-    where: { id: { in: ids }, status: "sending", claimedAt: now },
-    select: {
-      id: true,
-      type: true,
-      targetLineUserId: true,
-      sessionId: true,
-      attempts: true,
-    },
-  });
 
   let sent = 0;
   let failed = 0;
@@ -85,14 +91,6 @@ export async function POST(req: Request): Promise<Response> {
     failed,
   });
 }
-
-type Claimed = {
-  id: string;
-  type: string;
-  targetLineUserId: string;
-  sessionId: string | null;
-  attempts: number;
-};
 
 async function deliver(n: Claimed): Promise<boolean> {
   try {
