@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { ErrorBox, Hint, Screen, Title } from "../ui";
-import CopyableLink from "../copyable-link";
+import CopyableText from "../copyable-text";
 import InviteMember from "./invite-member";
 
 type MemberRow = {
@@ -110,7 +110,11 @@ export default function MembersList({ idToken }: { idToken: string }) {
             {!m.linked ? (
               <div className="mt-3">
                 {m.inviteUrl ? (
-                  <CopyableLink url={m.inviteUrl} />
+                  <CopyableText
+                    text={m.inviteUrl}
+                    buttonLabel="複製邀請連結"
+                    shareText={`這是你的專屬加入連結，點開填一下名字就完成了：\n${m.inviteUrl}`}
+                  />
                 ) : (
                   <button
                     onClick={() => void reinvite(m.id)}

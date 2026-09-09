@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import type { SessionRow } from "./day-view";
+import CopyableText from "../copyable-text";
 import DatePickerField from "./date-picker-field";
 import { Button, ErrorBox, TimeSelect } from "../ui";
-import { fmt, ymd } from "@/lib/time";
+import { fmt, fmtTimeRange, weekdayZh, ymd } from "@/lib/time";
 
 type Mode = "menu" | "reschedule" | "cancel";
 type Scope = "single" | "future";
@@ -58,13 +59,38 @@ export default function SessionActions({
     }
   }
 
+  const unlinked = session.participants.filter((p) => !p.linked);
+
   if (mode === "menu") {
     return (
-      <div className="mt-4 flex gap-2 border-t border-slate-100 pt-4">
-        <SecondaryButton onClick={() => setMode("reschedule")}>改期</SecondaryButton>
-        <SecondaryButton danger onClick={() => setMode("cancel")}>
-          取消課程
-        </SecondaryButton>
+      <div className="mt-4 border-t border-slate-100 pt-4">
+        <div className="flex gap-2">
+          <SecondaryButton onClick={() => setMode("reschedule")}>改期</SecondaryButton>
+          <SecondaryButton danger onClick={() => setMode("cancel")}>
+            取消課程
+          </SecondaryButton>
+        </div>
+
+        {/* 未連結 LINE 的學員收不到自動提醒，這裡把文字備好讓教練貼到
+            自己的官方帳號傳給他——降級但不歸零（SPEC.md §8）。 */}
+        {unlinked.length > 0 ? (
+          <div className="mt-4 rounded-xl bg-amber-50 p-3">
+            <p className="text-xs font-medium text-amber-800">
+              {unlinked.map((p) => p.name).join("、")} 尚未加入，收不到自動提醒
+            </p>
+            <div className="mt-3 space-y-4">
+              {unlinked.map((p) => (
+                <CopyableText
+                  key={p.id}
+                  text={reminderTextFor(p.name, start, session.durationMin)}
+                  buttonLabel={`複製給 ${p.name} 的提醒`}
+                  shareText={reminderTextFor(p.name, start, session.durationMin)}
+                  hint="貼到你自己的官方帳號傳給他"
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -138,6 +164,10 @@ export default function SessionActions({
       </div>
     </div>
   );
+}
+
+function reminderTextFor(name: string, start: Date, durationMin: number): string {
+  return `${name}你好，提醒你 ${fmt(start, "M/d")}（${weekdayZh(start)}）${fmtTimeRange(start, durationMin)} 有課。`;
 }
 
 function ScopePicker({

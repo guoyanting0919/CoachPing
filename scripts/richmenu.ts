@@ -91,7 +91,9 @@ const MENUS: Record<string, { chatBarText: string; rows: Cell[][] }> = {
     chatBarText: "學員選單",
     rows: [
       [
-        { label: "我的課表", icon: "calendar", page: "my-sessions" },
+        // 與教練端同理：查課表走 postback 直接回文字，不必等網頁載入，
+        // 而且 reply message 免費。
+        { label: "我的課表", icon: "list", postback: "my_sessions" },
         { label: "請假", icon: "cross", page: "leave" },
       ],
       // 「聯絡教練」不能寫死網址：學員可能同時屬於多位教練，
@@ -208,11 +210,11 @@ async function main() {
 
   // 只重新綁定，沿用現有選單。修正綁定錯誤時不必重建，避免 ID 又變動。
   if (process.argv.includes("--rebind")) {
-    await rebindUsers({
-      unregistered: process.env.LINE_RICHMENU_UNREGISTERED ?? "",
-      coach: process.env.LINE_RICHMENU_COACH ?? "",
-      member: process.env.LINE_RICHMENU_MEMBER ?? "",
-    });
+    const list = (await (await lineFetch(`${API}/richmenu/list`, {})).json()) as {
+      richmenus: { richMenuId: string; name: string }[];
+    };
+    const byName = Object.fromEntries(list.richmenus.map((m) => [m.name, m.richMenuId]));
+    await rebindUsers(byName);
     return;
   }
 
@@ -286,10 +288,7 @@ async function main() {
   // 這支腳本才能安全地重複執行。
   await rebindUsers(ids);
 
-  console.log("\n把以下三行填進 .env 與 Vercel 環境變數：\n");
-  console.log(`LINE_RICHMENU_UNREGISTERED="${ids.unregistered}"`);
-  console.log(`LINE_RICHMENU_COACH="${ids.coach}"`);
-  console.log(`LINE_RICHMENU_MEMBER="${ids.member}"\n`);
+  console.log("\n完成。應用程式以選單名稱向 LINE 查詢 ID，不需要更新環境變數。\n");
 }
 
 main().catch((e) => {

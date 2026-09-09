@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "../api";
-import CopyableLink from "../copyable-link";
+import CopyableText from "../copyable-text";
 import { Button, ErrorBox, Field, Hint, Screen, TextInput, Title } from "../ui";
 
 type CreateResult = { member: { id: string; name: string }; inviteUrl: string };
@@ -47,7 +47,11 @@ export default function InviteMember({
         </Hint>
 
         <div className="mt-5 rounded-2xl bg-white p-4 shadow-sm">
-          <CopyableLink url={result.inviteUrl} />
+          <CopyableText
+            text={result.inviteUrl}
+            buttonLabel="複製邀請連結"
+            shareText={`這是你的專屬加入連結，點開填一下名字就完成了：\n${result.inviteUrl}`}
+          />
         </div>
 
         <p className="mt-5 text-sm text-slate-500">

@@ -16,10 +16,6 @@ const serverSchema = z.object({
   APP_BASE_URL: z.url(),
   CRON_SECRET: z.string().min(1),
 
-  // Rich Menu 於第 2 項建立後才會有值，故為選填。
-  LINE_RICHMENU_UNREGISTERED: z.string().optional(),
-  LINE_RICHMENU_COACH: z.string().optional(),
-  LINE_RICHMENU_MEMBER: z.string().optional(),
 });
 
 type ServerEnv = z.infer<typeof serverSchema>;

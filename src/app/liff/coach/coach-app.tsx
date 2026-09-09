@@ -1,10 +1,10 @@
 "use client";
 
+import CoachSettings from "./coach-settings";
 import DayView from "./day-view";
 import LeaveReview from "./leave-review";
 import MembersList from "./members-list";
 import ScheduleForm from "./schedule-form";
-import { Hint, Screen, Title } from "../ui";
 
 /** Rich Menu 各按鈕帶的 ?p= 參數對應到這裡的畫面（SPEC.md §7）。 */
 export default function CoachApp({
@@ -28,18 +28,9 @@ export default function CoachApp({
       return <LeaveReview idToken={idToken} />;
 
     case "settings":
-      return <Placeholder title="設定" note="開發中。" />;
+      return <CoachSettings idToken={idToken} />;
 
     default:
       return <DayView idToken={idToken} />;
   }
-}
-
-function Placeholder({ title, note }: { title: string; note: string }) {
-  return (
-    <Screen>
-      <Title>{title}</Title>
-      <Hint>{note}</Hint>
-    </Screen>
-  );
 }

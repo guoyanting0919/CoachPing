@@ -1,7 +1,7 @@
 import type { webhook } from "@line/bot-sdk";
 import { bindRichMenu, replyText, resolveRole, verifySignature } from "@/lib/line";
 import { prisma } from "@/lib/prisma";
-import { buildCoachTodayText } from "@/lib/today-schedule";
+import { buildCoachTodayText, buildMemberScheduleText } from "@/lib/today-schedule";
 
 export const runtime = "nodejs";
 // webhook 必須每次即時處理，不可被快取或預先產生。
@@ -87,6 +87,19 @@ async function handlePostback(
     return;
   }
 
+  if (action === "my_sessions") {
+    const member = await prisma.member.findUnique({
+      where: { lineUserId },
+      select: { id: true },
+    });
+    if (!member) {
+      await replyText(replyToken, "請先透過教練提供的邀請連結完成加入。");
+      return;
+    }
+    await replyText(replyToken, await buildMemberScheduleText(member.id));
+    return;
+  }
+
   console.warn("[webhook] 未知的 postback action:", data);
 }
 
@@ -126,7 +139,9 @@ async function handleTextMessage(
 ): Promise<void> {
   const role = await resolveRole(lineUserId);
 
-  if (role === "coach" && TODAY_KEYWORDS.includes(message.trim())) {
+  const trimmed = message.trim();
+
+  if (role === "coach" && TODAY_KEYWORDS.includes(trimmed)) {
     const coach = await prisma.coach.findUnique({
       where: { lineUserId },
       select: { id: true },
@@ -137,12 +152,23 @@ async function handleTextMessage(
     }
   }
 
+  if (role === "member" && TODAY_KEYWORDS.includes(trimmed)) {
+    const member = await prisma.member.findUnique({
+      where: { lineUserId },
+      select: { id: true },
+    });
+    if (member) {
+      await replyText(replyToken, await buildMemberScheduleText(member.id));
+      return;
+    }
+  }
+
   // 一律使用 reply（免費），不要用 push 回應學員訊息。
   const text =
     role === "coach"
       ? "請點下方選單操作排課、查看學員或處理請假。也可以直接輸入「今日課表」。"
       : role === "member"
-        ? "課表查詢與請假請點下方選單。想找教練聊聊請點「聯絡教練」。"
+        ? "輸入「課表」可查詢，請假請點下方選單。想找教練聊聊請點「聯絡教練」。"
         : "請先點下方選單完成註冊。";
 
   await replyText(replyToken, text);

@@ -46,3 +46,49 @@ export async function buildCoachTodayText(coachId: string): Promise<string> {
 
   return `${header}\n\n${lines.join("\n")}\n\n共 ${sessions.length} 堂`;
 }
+
+/** 學員課表的顯示範圍（天）。 */
+const MEMBER_RANGE_DAYS = 30;
+
+/**
+ * 學員的課表文字，涵蓋未來 30 天。
+ * 跨教練合併——學員可能同時上多位教練的課，而他只有一個 LINE 帳號。
+ */
+export async function buildMemberScheduleText(memberId: string): Promise<string> {
+  const now = new Date();
+  const until = new Date(now.getTime() + MEMBER_RANGE_DAYS * 24 * 60 * 60 * 1000);
+
+  const sessions = await prisma.session.findMany({
+    where: {
+      status: "scheduled",
+      startAt: { gte: now, lt: until },
+      participants: { some: { memberId } },
+    },
+    orderBy: { startAt: "asc" },
+    select: {
+      startAt: true,
+      durationMin: true,
+      coach: { select: { name: true } },
+    },
+  });
+
+  const header = `你的課表（未來 ${MEMBER_RANGE_DAYS} 天）`;
+
+  if (sessions.length === 0) {
+    return `${header}\n\n目前沒有排定的課程。教練排課後會提前通知你。`;
+  }
+
+  const lines = sessions.map(
+    (s) =>
+      `${fmt(s.startAt, "M/d")}（${weekdayZh(s.startAt)}）${fmtTimeRange(s.startAt, s.durationMin)}　${s.coach.name} 教練`,
+  );
+
+  return [
+    header,
+    "",
+    ...lines,
+    "",
+    `共 ${sessions.length} 堂`,
+    "需要請假請點下方選單的「請假」。",
+  ].join("\n");
+}
