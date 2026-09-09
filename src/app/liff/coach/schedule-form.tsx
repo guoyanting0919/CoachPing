@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import MemberPicker from "./member-picker";
 import {
   Button,
   Card,
@@ -14,7 +15,12 @@ import {
   TextInput,
   Title,
 } from "../ui";
-import { DEFAULT_WEEKS, MAX_PARTICIPANTS, generateStartTimes } from "@/lib/schedule";
+import {
+  DEFAULT_WEEKS,
+  MAX_PARTICIPANTS,
+  WEEK_OPTIONS,
+  generateStartTimes,
+} from "@/lib/schedule";
 import { fmtSession, ymd } from "@/lib/time";
 
 type MemberRow = { id: string; name: string; linked: boolean };
@@ -30,7 +36,6 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
   const [duration, setDuration] = useState(60);
   const [weeks, setWeeks] = useState(DEFAULT_WEEKS);
   const [startDate, setStartDate] = useState(() => ymd(new Date()));
-  const [location, setLocation] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,16 +71,6 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
     }
   }, [startDate, weekdays, time, weeks]);
 
-  function toggleMember(id: string) {
-    setSelected((prev) =>
-      prev.includes(id)
-        ? prev.filter((x) => x !== id)
-        : prev.length >= MAX_PARTICIPANTS
-          ? prev
-          : [...prev, id],
-    );
-  }
-
   function toggleWeekday(d: number) {
     setWeekdays((prev) =>
       prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort(),
@@ -101,7 +96,6 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
           time,
           weeks,
           durationMin: duration,
-          location: location.trim() || undefined,
           force,
         }),
       });
@@ -163,26 +157,21 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
       <Title>排課</Title>
 
       <div className="mt-5 space-y-6 pb-32">
-        <Section
-          title="學員"
-          hint={`最多 ${MAX_PARTICIPANTS} 位。已選 ${selected.length} 位`}
-        >
-          <div className="flex flex-wrap gap-2">
-            {members.map((m) => {
-              const active = selected.includes(m.id);
-              return (
-                <Chip
-                  key={m.id}
-                  active={active}
-                  disabled={!active && selected.length >= MAX_PARTICIPANTS}
-                  onClick={() => toggleMember(m.id)}
-                >
-                  {m.name}
-                  {m.linked ? "" : " ·未加入"}
-                </Chip>
-              );
-            })}
-          </div>
+        <Section title="學員" hint={`最多 ${MAX_PARTICIPANTS} 位`}>
+          <MemberPicker
+            members={members}
+            selected={selected}
+            onChange={setSelected}
+            max={MAX_PARTICIPANTS}
+          />
+        </Section>
+
+        <Section title={weekdays.length > 0 ? "從哪天開始" : "上課日期"}>
+          <TextInput
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
         </Section>
 
         <Section title="時間">
@@ -219,7 +208,7 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
             <div className="mt-3 flex items-center gap-2">
               <span className="text-sm text-slate-600">持續</span>
               <Select value={weeks} onChange={(e) => setWeeks(Number(e.target.value))}>
-                {[4, 8, 12, 16, 26].map((w) => (
+                {WEEK_OPTIONS.map((w) => (
                   <option key={w} value={w}>
                     {w} 週
                   </option>
@@ -227,25 +216,6 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
               </Select>
             </div>
           ) : null}
-        </Section>
-
-        <Section
-          title={weekdays.length > 0 ? "從哪天開始" : "上課日期"}
-        >
-          <TextInput
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-          />
-        </Section>
-
-        <Section title="地點" hint="選填">
-          <TextInput
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            placeholder="信義店"
-            maxLength={100}
-          />
         </Section>
 
         {error ? <ErrorBox>{error}</ErrorBox> : null}

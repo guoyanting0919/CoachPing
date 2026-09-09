@@ -73,8 +73,17 @@ export function overlaps(
   return aStart.getTime() < bEnd && bStart.getTime() < aEnd;
 }
 
-/** 預設展開週數（SPEC.md §3.4：維持未來 12 週）。 */
-export const DEFAULT_WEEKS = 12;
-export const MAX_WEEKS = 26;
+/**
+ * 持續週數。教練明確指定要排幾週，系列即在那時結束，不自動延長——
+ * 因此不需要「每週往後補一週」的 cron。
+ * 預設 2 週：私教的排課視野通常很短，長期學員再重排即可。
+ */
+export const DEFAULT_WEEKS = 2;
+export const MIN_WEEKS = 2;
+export const MAX_WEEKS = 12;
+export const WEEK_OPTIONS = Array.from(
+  { length: MAX_WEEKS - MIN_WEEKS + 1 },
+  (_, i) => MIN_WEEKS + i,
+);
 /** 一堂課最多 3 人：1 對 1、1 對 2、1 對 3，不做團體課（SPEC.md §4）。 */
 export const MAX_PARTICIPANTS = 3;
