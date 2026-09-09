@@ -1,0 +1,214 @@
+// 健身教練排課推播系統 — 資料模型
+// 規格見 SPEC.md §4。修改前請先更新 SPEC.md。
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CoachMemberStatus {
+  active
+  inactive
+}
+
+enum SessionStatus {
+  scheduled
+  cancelled
+  completed
+}
+
+enum LeaveStatus {
+  auto_approved
+  pending
+  approved
+  rejected
+}
+
+enum NotificationStatus {
+  pending
+  sent
+  failed
+}
+
+/// 通知類型。對應 SPEC.md §5。
+enum NotificationType {
+  member_reminder // 學員：課前提醒
+  member_change // 學員：課程取消／改期
+  coach_daily // 教練：每日 08:00 今日課表彙總
+  coach_leave // 教練：學員請假通知
+}
+
+model Coach {
+  id         String @id @default(uuid())
+  lineUserId String @unique @map("line_user_id")
+  name       String
+
+  /// 教練自己的 LINE 官方帳號連結。學員版 Rich Menu「聯絡教練」靠它跳轉，必填。
+  oaUrl String @map("oa_url")
+
+  /// 預留 B2B（健身房管理端），MVP 恆為 null。
+  gymId String? @map("gym_id")
+
+  /// 請假自動核准門檻（小時）。距上課 >= 此值即自動核准。
+  leaveDeadlineHours Int @default(24) @map("leave_deadline_hours")
+
+  /// 課前提醒提前時數。
+  reminderHours Int @default(24) @map("reminder_hours")
+
+  defaultDuration Int @default(60) @map("default_duration")
+
+  /// iCal 訂閱網址的秘密 token（SPEC.md §9）。
+  icalToken String @unique @default(uuid()) @map("ical_token")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members  CoachMember[]
+  invites  Invite[]
+  sessions Session[]
+
+  @@map("coaches")
+}
+
+model Member {
+  id          String @id @default(uuid())
+  displayName String @map("display_name")
+
+  /// null 表示尚未完成註冊。教練仍可為其排課，推播時跳過並改走降級流程（SPEC.md §8）。
+  lineUserId String? @unique @map("line_user_id")
+
+  /// 推播失敗（學員封鎖本 OA）時標記。教練端須顯示警示。
+  lineBlocked Boolean @default(false) @map("line_blocked")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  coaches       CoachMember[]
+  invites       Invite[]
+  participation SessionParticipant[]
+  leaveRequests LeaveRequest[]
+
+  @@map("members")
+}
+
+/// 師生關係為多對多（SPEC.md §4）。同一學員可同時屬於多位教練。
+/// 隱私硬規則：教練只能讀取自己的關係與 session，不得得知學員的其他教練。
+model CoachMember {
+  coachId  String            @map("coach_id")
+  memberId String            @map("member_id")
+  status   CoachMemberStatus @default(active)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  coach  Coach  @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@id([coachId, memberId])
+  @@index([memberId])
+  @@map("coach_members")
+}
+
+/// 一次性邀請連結，綁定特定學員記錄（SPEC.md §3.2）。
+model Invite {
+  token    String    @id @default(uuid())
+  coachId  String    @map("coach_id")
+  memberId String    @map("member_id")
+  expiresAt DateTime @map("expires_at")
+  usedAt   DateTime? @map("used_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  coach  Coach  @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([coachId])
+  @@index([memberId])
+  @@map("invites")
+}
+
+/// 一堂具體的課。重複課程展開成實體（SPEC.md §3.4），以 seriesId 串聯。
+model Session {
+  id      String  @id @default(uuid())
+  coachId String  @map("coach_id")
+  /// 同一組重複課程共用。單次課程為 null。
+  seriesId String? @map("series_id")
+
+  startAt     DateTime @map("start_at")
+  durationMin Int      @map("duration_min")
+  /// 選填自由文字，連鎖健身房教練可能跨門店。
+  location String?
+
+  status SessionStatus @default(scheduled)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  coach         Coach                @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  participants  SessionParticipant[]
+  leaveRequests LeaveRequest[]
+
+  @@index([coachId, startAt])
+  @@index([seriesId])
+  @@index([startAt])
+  @@map("sessions")
+}
+
+/// 1:N，N <= 3（1 對 1、1 對 2、1 對 3）。不支援團體課。
+model SessionParticipant {
+  sessionId String @map("session_id")
+  memberId  String @map("member_id")
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  member  Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, memberId])
+  @@index([memberId])
+  @@map("session_participants")
+}
+
+/// 請假狀態機見 SPEC.md §6。補課不做：請假即取消。
+model LeaveRequest {
+  id        String      @id @default(uuid())
+  sessionId String      @map("session_id")
+  memberId  String      @map("member_id")
+  reason    String?
+  status    LeaveStatus
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  resolvedAt DateTime? @map("resolved_at")
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  member  Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([memberId])
+  @@map("leave_requests")
+}
+
+/// 推播佇列。所有推播一律經此表，由 cron 每分鐘掃出送發，
+/// 不在 request 內直接 push（為了重試、稽核、防重複）。見 SPEC.md §5。
+model Notification {
+  id               String           @id @default(uuid())
+  targetLineUserId String           @map("target_line_user_id")
+  type             NotificationType
+  payload          Json
+
+  sendAt DateTime  @map("send_at")
+  sentAt DateTime? @map("sent_at")
+
+  status NotificationStatus @default(pending)
+  error  String?
+
+  /// 來源 session。課程改期時據此找出並更新 sendAt，取消時作廢。
+  sessionId String? @map("session_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([status, sendAt])
+  @@index([sessionId])
+  @@map("notifications")
+}
