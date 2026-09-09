@@ -193,9 +193,14 @@ LIFF 前端傳來的 `userId` **一律不可信任**——那只是一段 JSON�
 
 ### 實作規則
 
-- 所有推播一律寫入 `notifications` 佇列，由 cron 每分鐘掃 `send_at <= now() AND sent_at IS NULL AND status = 'pending'` 送出。**不在 request 內直接 push**（為了重試、稽核、防重複）。
+- 所有推播一律寫入 `notifications` 佇列，由 cron 每分鐘呼叫 `POST /api/cron/dispatch` 送出。**不在 request 內直接 push**（為了重試、稽核、防重複，也避免推播失敗連帶讓排課 API 失敗）。
+- **先取走再送出**：派送時以條件更新把項目標記為 `sending` 並記下 `claimed_at`，兩次 cron 重疊時後者的更新會落空，不會重複推播。程序中斷而卡在 `sending` 超過 5 分鐘的項目下一輪回收重送。
+- **失敗重試三次**後標記 `failed`，避免無效項目每分鐘重試不休。
+- **推播回 403 視為學員已封鎖**，標記 `members.line_blocked` 讓教練端顯示警示。
+- **內容於送出當下才產生**，不預先存文案。這樣課程改期後送出的仍是正確時間；課程若已取消則直接跳過不送。
 - 「即時」= `send_at` 設為當下，下一分鐘的 cron 送出。
-- 課程改期時，直接 UPDATE 該 session 對應的 pending notification 的 `send_at`；取消時將其標記為作廢。**不使用 delayed job 服務**（改期時要反查並取消 job 太麻煩）。
+- 課程改期時，連同該 session 尚未送出的提醒一起移動 `send_at`；取消時刪除尚未送出的提醒（已送出的保留作為稽核紀錄）。這些都與課程異動在同一個 transaction 內完成，否則會出現「課排好了但沒人會被通知」。**不使用 delayed job 服務**（改期時要反查並取消 job 太麻煩）。
+- **提醒時間已過就盡快送出**，而非略過。教練當天才排隔天以內的課是常態，學員仍然需要知道。
 - 學員 `line_user_id` 為 null（尚未註冊）→ 不產生 notification，轉由 §8 降級流程處理。
 - 推播 API 回傳錯誤（學員封鎖）→ 標記 `members.line_blocked = true`，教練端顯示警示。**這比從未連結更危險**，因為教練會誤以為學員收到了。
 - 學員回覆訊息一律用 **reply message**（免費），不用 push。
@@ -331,7 +336,7 @@ Vercel Hobby 方案的內建 cron 僅支援每日一次，故排程走外部服�
 | 2 | 教練註冊 + Rich Menu 角色綁定 ✅ | 8h |
 | 3 | 邀請學員 + 學員註冊 + 關聯建立 ✅ | 8h |
 | 4 | **排課 UI**（單堂 + 連續 2～12 週） ✅ | 16h |
-| 5 | 通知佇列 + cron + 課前提醒 | 8h |
+| 5 | 通知佇列 + cron + 課前提醒 ✅ | 8h |
 | 6 | 學員課表 + 請假流程 | 10h |
 | 7 | 教練每日彙總 + 請假審核 | 6h |
 | 8 | 異動即時推播 | 2h |

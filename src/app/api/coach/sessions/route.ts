@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireCoach } from "@/lib/auth";
+import { enqueueSessionReminders } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import {
   DEFAULT_WEEKS,
@@ -133,9 +134,12 @@ export async function POST(req: Request): Promise<Response> {
   // 單堂課程沒有系列可言，維持 null。
   const seriesId = startTimes.length > 1 ? randomUUID() : null;
 
-  await prisma.$transaction(
-    startTimes.map((startAt) =>
-      prisma.session.create({
+  // 建立課程與排入提醒必須同時成立，否則會出現「課排好了但沒人會被通知」。
+  const reminders = await prisma.$transaction(async (tx) => {
+    const ids: string[] = [];
+
+    for (const startAt of startTimes) {
+      const created = await tx.session.create({
         data: {
           coachId: coach.id,
           seriesId,
@@ -146,11 +150,15 @@ export async function POST(req: Request): Promise<Response> {
             create: body.memberIds.map((memberId) => ({ memberId })),
           },
         },
-      }),
-    ),
-  );
+        select: { id: true },
+      });
+      ids.push(created.id);
+    }
 
-  return Response.json({ created: startTimes.length, seriesId });
+    return enqueueSessionReminders(tx, ids);
+  });
+
+  return Response.json({ created: startTimes.length, seriesId, reminders });
 }
 
 /** 回傳與既有課程撞期的開始時刻。已取消的課不算衝突。 */

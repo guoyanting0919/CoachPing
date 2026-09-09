@@ -175,5 +175,37 @@ LINE 的 webhook 和 LIFF 都要求 HTTPS 公開網址，本機 `localhost` 不�
 ## 附註：後續項目才會用到的設定
 
 - **Rich Menu**（第 2 項）：由程式透過 API 建立，屆時會產生三組 ID 填回 `.env`
-- **cron**（第 5 項）：需在 Upstash QStash 或 cron-job.org 設定每分鐘呼叫 `POST /api/cron/dispatch`，帶 `Authorization: Bearer $CRON_SECRET`
-- **LINE Login 網頁版**（桌面入口，第 4 項之後）：LINE Login channel → Callback URL 加入 `https://your-app.vercel.app/api/auth/line/callback`
+- **LINE Login 網頁版**（桌面入口）：LINE Login channel → Callback URL 加入 `https://your-app.vercel.app/api/auth/line/callback`
+
+---
+
+## 8. 推播排程（第 5 項）
+
+推播不會自己送出——`/api/cron/dispatch` 必須由外部排程每分鐘呼叫一次。
+沒設定的話課程照排、提醒照排入佇列，但一則都不會發出去。
+
+Vercel Hobby 方案的內建 cron 每天只能跑一次，因此走外部服務。擇一：
+
+**cron-job.org**（免費，最簡單）
+- [ ] 註冊後新增 cronjob
+- [ ] URL：`https://coachping.vercel.app/api/cron/dispatch`
+- [ ] Request method：**POST**
+- [ ] Schedule：**Every 1 minute**
+- [ ] Headers 加一列：`Authorization: Bearer <你的 CRON_SECRET>`
+
+**Upstash QStash**（免費額度足夠）
+- [ ] Console → Schedules → Create
+- [ ] Destination：同上網址，方法 POST
+- [ ] Cron：`* * * * *`
+- [ ] Header：`Authorization: Bearer <你的 CRON_SECRET>`
+
+`CRON_SECRET` 在本機 `.env` 裡。設定完成後可手動驗證：
+
+```bash
+curl -X POST https://coachping.vercel.app/api/cron/dispatch \
+  -H "Authorization: Bearer $CRON_SECRET"
+# 應回 {"reclaimed":0,"claimed":0,"sent":0,"failed":0}
+```
+
+回 401 表示密鑰不符；回 200 但 `sent` 為 0 是正常的——代表當下沒有到期的提醒。
+

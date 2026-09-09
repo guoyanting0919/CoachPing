@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { requireCoach } from "@/lib/auth";
+import {
+  cancelPendingNotifications,
+  rescheduleReminders,
+} from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import { taipeiDateTime, ymd } from "@/lib/time";
 
@@ -54,9 +58,13 @@ export async function PATCH(
 
     const time = body.time ?? hhmmInTaipei(session.startAt);
 
-    await prisma.session.update({
-      where: { id },
-      data: { ...common, startAt: taipeiDateTime(date, time) },
+    await prisma.$transaction(async (tx) => {
+      await tx.session.update({
+        where: { id },
+        data: { ...common, startAt: taipeiDateTime(date, time) },
+      });
+      // 課移動了，尚未送出的提醒也要跟著移動。
+      await rescheduleReminders(tx, id);
     });
 
     return Response.json({ ok: true, updated: 1 });
@@ -77,9 +85,9 @@ export async function PATCH(
   });
 
   // 每堂各自保留原本的日期，只換時間，所以逐筆更新而非一次 updateMany。
-  await prisma.$transaction(
-    future.map((s) =>
-      prisma.session.update({
+  await prisma.$transaction(async (tx) => {
+    for (const s of future) {
+      await tx.session.update({
         where: { id: s.id },
         data: {
           ...common,
@@ -87,9 +95,10 @@ export async function PATCH(
             ? { startAt: taipeiDateTime(ymdInTaipei(s.startAt), body.time) }
             : {}),
         },
-      }),
-    ),
-  );
+      });
+      await rescheduleReminders(tx, s.id);
+    }
+  });
 
   return Response.json({ ok: true, updated: future.length });
 }
@@ -111,21 +120,36 @@ export async function DELETE(
   if (!session) return Response.json({ error: "not_found" }, { status: 404 });
 
   if (scope === "single" || !session.seriesId) {
-    await prisma.session.update({ where: { id }, data: { status: "cancelled" } });
+    await prisma.$transaction(async (tx) => {
+      await tx.session.update({ where: { id }, data: { status: "cancelled" } });
+      // 課取消了，還沒送出的提醒不該再送。
+      await cancelPendingNotifications(tx, [id]);
+    });
     return Response.json({ ok: true, cancelled: 1 });
   }
 
-  const result = await prisma.session.updateMany({
-    where: {
-      coachId: auth.value.id,
-      seriesId: session.seriesId,
-      startAt: { gte: session.startAt },
-      status: "scheduled",
-    },
-    data: { status: "cancelled" },
+  const cancelled = await prisma.$transaction(async (tx) => {
+    const targets = await tx.session.findMany({
+      where: {
+        coachId: auth.value.id,
+        seriesId: session.seriesId,
+        startAt: { gte: session.startAt },
+        status: "scheduled",
+      },
+      select: { id: true },
+    });
+    const ids = targets.map((t) => t.id);
+
+    await tx.session.updateMany({
+      where: { id: { in: ids } },
+      data: { status: "cancelled" },
+    });
+    await cancelPendingNotifications(tx, ids);
+
+    return ids.length;
   });
 
-  return Response.json({ ok: true, cancelled: result.count });
+  return Response.json({ ok: true, cancelled });
 }
 
 function ymdInTaipei(date: Date): string {

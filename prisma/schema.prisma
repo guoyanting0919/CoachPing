@@ -30,6 +30,8 @@ enum LeaveStatus {
 
 enum NotificationStatus {
   pending
+  /// 已被某次 cron 取走、正在送出。用於避免兩次 cron 重疊時重複推播。
+  sending
   sent
   failed
 }
@@ -172,6 +174,7 @@ model Session {
   coach         Coach                @relation(fields: [coachId], references: [id], onDelete: Cascade)
   participants  SessionParticipant[]
   leaveRequests LeaveRequest[]
+  notifications Notification[]
 
   @@index([coachId, startAt])
   @@index([seriesId])
@@ -225,8 +228,16 @@ model Notification {
   status NotificationStatus @default(pending)
   error  String?
 
+  /// 取走的時間。用於回收因程序中斷而卡在 sending 的項目。
+  claimedAt DateTime? @map("claimed_at")
+
+  /// 失敗重試次數。連續失敗多次即放棄，避免無效項目每分鐘重試。
+  attempts Int @default(0)
+
   /// 來源 session。課程改期時據此找出並更新 sendAt，取消時作廢。
-  sessionId String? @map("session_id")
+  /// 課程只會被標記取消、不會刪除，SetNull 僅為防禦性設定。
+  sessionId String?  @map("session_id")
+  session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now()) @map("created_at")
 
