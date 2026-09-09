@@ -1,7 +1,5 @@
 import { lineClient } from "@/lib/line";
 import {
-  ensureDailyDigests,
-  renderCoachDaily,
   renderCoachLeave,
   renderMemberChange,
   renderMemberReminder,
@@ -43,10 +41,6 @@ export async function POST(req: Request): Promise<Response> {
 
   const now = new Date();
 
-  // 教練每日彙總在這裡順便排入，不另外設一支 cron——多一個排程就多一個
-  // 會默默失效的東西，還要在外部服務再設一次時區。以「今天是否已排過」保證冪等。
-  const digests = await ensureDailyDigests(now);
-
   // 回收上一輪中斷留下的項目。沒有這步，程序被中斷的推播會永遠卡住。
   const reclaimed = await prisma.notification.updateMany({
     where: {
@@ -82,7 +76,6 @@ export async function POST(req: Request): Promise<Response> {
 
   if (claimed.length === 0) {
     return Response.json({
-      digests,
       reclaimed: reclaimed.count,
       claimed: 0,
       sent: 0,
@@ -103,7 +96,6 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   return Response.json({
-    digests,
     reclaimed: reclaimed.count,
     claimed: claimed.length,
     sent,
@@ -150,14 +142,14 @@ async function renderText(n: Claimed): Promise<string | null> {
       return id ? renderCoachLeave(id) : null;
     }
 
-    case "coach_daily": {
-      const coachId = (n.payload as { coachId?: string } | null)?.coachId;
-      return coachId ? renderCoachDaily(coachId) : null;
-    }
-
     case "member_change":
       return renderMemberChange(
-        n.payload as { kind?: string; leaveRequestId?: string } | null,
+        n.payload as {
+          kind?: string;
+          leaveRequestId?: string;
+          sessionId?: string;
+          oldStartAt?: string;
+        } | null,
       );
     default:
       console.warn("[cron] 未知的通知類型:", n.type);

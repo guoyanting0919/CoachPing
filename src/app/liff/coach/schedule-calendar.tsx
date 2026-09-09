@@ -18,11 +18,18 @@ export default function ScheduleCalendar({
   onSelect,
   /** 早於此日期的格子不可選。選日期時傳今天；純瀏覽時不傳。 */
   minDate,
+  renderDayDetail,
 }: {
   idToken: string;
   selected: string | null;
   onSelect: (date: string) => void;
   minDate?: string;
+  /**
+   * 自訂選定日期的內容。不傳時顯示內建的精簡清單。
+   * 資料由本元件持有，透過這個回呼交給呼叫端渲染，
+   * 呼叫端就不必自己再抓一次同一個月的課程。
+   */
+  renderDayDetail?: (date: string, sessions: SessionRow[]) => React.ReactNode;
 }) {
   const today = useMemo(() => ymd(new Date()), []);
   const [anchor, setAnchor] = useState(() => monthAnchor(selected ?? today));
@@ -133,7 +140,9 @@ export default function ScheduleCalendar({
         })}
       </div>
 
-      {selected ? (
+      {selected && renderDayDetail ? (
+        <div className="mt-3">{renderDayDetail(selected, daySessions)}</div>
+      ) : selected ? (
         <div className="mt-3 border-t border-slate-100 pt-3">
           <p className="mb-1 text-xs font-medium text-slate-500">
             {fmtMonthDay(selected)} 這天的課

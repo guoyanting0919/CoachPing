@@ -1,7 +1,6 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { prisma } from "./prisma";
-import { buildCoachTodayText } from "./today-schedule";
-import { fmt, fmtTimeRange, taipeiDateTime, weekdayZh, ymd } from "./time";
+import { fmt, fmtTimeRange, weekdayZh } from "./time";
 
 /**
  * 推播佇列（SPEC.md §5）。
@@ -94,8 +93,11 @@ export async function rescheduleReminders(db: Db, sessionId: string): Promise<vo
 }
 
 /**
- * 課程取消：作廢尚未送出的提醒。
+ * 課程取消：作廢尚未送出的「課前提醒」。
  * 已送出的保留，那是稽核紀錄；未送出的沒有意義，直接刪除。
+ *
+ * 僅限 member_reminder：取消課程的同時會排入 member_change 異動通知，
+ * 不限定型別的話會把那則剛建立的通知一起刪掉，學員就永遠不知道課取消了。
  */
 export async function cancelPendingNotifications(
   db: Db,
@@ -103,7 +105,11 @@ export async function cancelPendingNotifications(
 ): Promise<void> {
   if (sessionIds.length === 0) return;
   await db.notification.deleteMany({
-    where: { sessionId: { in: sessionIds }, status: "pending" },
+    where: {
+      sessionId: { in: sessionIds },
+      status: "pending",
+      type: "member_reminder",
+    },
   });
 }
 
@@ -218,67 +224,14 @@ export async function enqueueCoachLeave(
   });
 }
 
-/** 教練每日彙總的送出時間（台北時間的整點）。 */
-export const DAILY_DIGEST_HOUR = 8;
-
-/**
- * 排入教練的今日課表彙總（SPEC.md §5）。
- *
- * 刻意不另外設一支 cron：多一個排程就多一個會默默失效的東西，而且
- * 還要在外部服務裡再設一次時區。改為由每分鐘的派送順便檢查，
- * 以「今天是否已排過」保證冪等。
- *
- * 只為今天有課的教練排——沒課的人不需要收到「你今天沒有課」。
- */
-export async function ensureDailyDigests(now: Date): Promise<number> {
-  if (Number(fmt(now, "H")) !== DAILY_DIGEST_HOUR) return 0;
-
-  const today = ymd(now);
-  const dayStart = taipeiDateTime(today, "00:00");
-  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-
-  const coaches = await prisma.coach.findMany({
-    where: {
-      sessions: { some: { status: "scheduled", startAt: { gte: now, lt: dayEnd } } },
-    },
-    select: { id: true, lineUserId: true },
-  });
-  if (coaches.length === 0) return 0;
-
-  // 今天已經排過的就跳過。派送每分鐘跑一次，這道檢查是防重複的關鍵。
-  const already = await prisma.notification.findMany({
-    where: {
-      type: "coach_daily",
-      sendAt: { gte: dayStart, lt: dayEnd },
-      targetLineUserId: { in: coaches.map((c) => c.lineUserId) },
-    },
-    select: { targetLineUserId: true },
-  });
-  const done = new Set(already.map((a) => a.targetLineUserId));
-
-  const rows = coaches
-    .filter((c) => !c.lineUserId.startsWith("detached:") && !done.has(c.lineUserId))
-    .map((c) => ({
-      targetLineUserId: c.lineUserId,
-      type: "coach_daily" as const,
-      payload: { coachId: c.id },
-      sendAt: now,
-    }));
-
-  if (rows.length === 0) return 0;
-
-  await prisma.notification.createMany({ data: rows });
-  return rows.length;
-}
-
-/** 教練的每日彙總內容，與 postback 查詢的今日課表共用同一份。 */
-export async function renderCoachDaily(coachId: string): Promise<string | null> {
-  return buildCoachTodayText(coachId);
-}
-
 /** 學員收到的課程異動通知。 */
 export async function renderMemberChange(
-  payload: { kind?: string; leaveRequestId?: string } | null,
+  payload: {
+    kind?: string;
+    leaveRequestId?: string;
+    sessionId?: string;
+    oldStartAt?: string;
+  } | null,
 ): Promise<string | null> {
   if (!payload?.kind) return null;
 
@@ -313,13 +266,59 @@ export async function renderMemberChange(
         ].join("\n");
   }
 
+  if (payload.kind === "cancelled" || payload.kind === "rescheduled") {
+    if (!payload.sessionId) return null;
+
+    const session = await prisma.session.findUnique({
+      where: { id: payload.sessionId },
+      select: {
+        startAt: true,
+        durationMin: true,
+        coach: { select: { name: true } },
+      },
+    });
+    if (!session) return null;
+
+    if (payload.kind === "cancelled") {
+      return [
+        "【課程取消】",
+        "",
+        when(session.startAt, session.durationMin),
+        `${session.coach.name} 教練取消了這堂課。`,
+        "",
+        "有疑問請直接聯絡教練。",
+      ].join("\n");
+    }
+
+    // 改期一定要同時給舊時間，只說新時間學員不知道是哪一堂被動了。
+    const oldAt = payload.oldStartAt ? new Date(payload.oldStartAt) : null;
+
+    return [
+      "【課程改期】",
+      "",
+      oldAt ? `原　${when(oldAt, session.durationMin)}` : null,
+      `改為　${when(session.startAt, session.durationMin)}`,
+      "",
+      `${session.coach.name} 教練調整了上課時間。`,
+    ]
+      .filter((l) => l !== null)
+      .join("\n");
+  }
+
   return null;
+}
+
+function when(startAt: Date, durationMin: number): string {
+  return `${fmt(startAt, "M/d")}（${weekdayZh(startAt)}）${fmtTimeRange(startAt, durationMin)}`;
 }
 
 /** 排入學員的異動通知，即時送出。 */
 export type MemberChangePayload = {
   kind: "leave_approved" | "leave_rejected" | "cancelled" | "rescheduled";
   leaveRequestId?: string;
+  sessionId?: string;
+  /** 改期通知用。只說新時間的話，學員不知道是哪一堂被動了。 */
+  oldStartAt?: string;
 };
 
 export async function enqueueMemberChange(
@@ -339,4 +338,43 @@ export async function enqueueMemberChange(
       },
     ],
   });
+}
+
+/**
+ * 為一批課程的所有參與者排入異動通知，即時送出。
+ * 未連結 LINE 的學員沒有 userId 可推，改走教練手動通知的降級流程。
+ */
+export async function enqueueSessionChange(
+  db: Db,
+  sessions: { id: string; oldStartAt?: Date }[],
+  kind: "cancelled" | "rescheduled",
+): Promise<number> {
+  if (sessions.length === 0) return 0;
+
+  const participants = await db.sessionParticipant.findMany({
+    where: { sessionId: { in: sessions.map((s) => s.id) } },
+    select: { sessionId: true, member: { select: { lineUserId: true } } },
+  });
+
+  const oldById = new Map(sessions.map((s) => [s.id, s.oldStartAt]));
+  const now = new Date();
+
+  const rows = participants
+    .filter((p) => p.member.lineUserId)
+    .map((p) => ({
+      targetLineUserId: p.member.lineUserId!,
+      type: "member_change" as const,
+      payload: {
+        kind,
+        sessionId: p.sessionId,
+        oldStartAt: oldById.get(p.sessionId)?.toISOString(),
+      },
+      sendAt: now,
+      sessionId: p.sessionId,
+    }));
+
+  if (rows.length === 0) return 0;
+
+  await db.notification.createMany({ data: rows });
+  return rows.length;
 }

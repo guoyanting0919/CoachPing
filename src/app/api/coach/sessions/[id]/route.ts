@@ -2,6 +2,7 @@ import { z } from "zod";
 import { requireCoach } from "@/lib/auth";
 import {
   cancelPendingNotifications,
+  enqueueSessionChange,
   rescheduleReminders,
 } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
@@ -58,13 +59,25 @@ export async function PATCH(
 
     const time = body.time ?? hhmmInTaipei(session.startAt);
 
+    const newStartAt = taipeiDateTime(date, time);
+    const moved = newStartAt.getTime() !== session.startAt.getTime();
+
     await prisma.$transaction(async (tx) => {
       await tx.session.update({
         where: { id },
-        data: { ...common, startAt: taipeiDateTime(date, time) },
+        data: { ...common, startAt: newStartAt },
       });
       // 課移動了，尚未送出的提醒也要跟著移動。
       await rescheduleReminders(tx, id);
+
+      // 只有時間真的變了才通知。改地點或時長不值得吵學員。
+      if (moved) {
+        await enqueueSessionChange(
+          tx,
+          [{ id, oldStartAt: session.startAt }],
+          "rescheduled",
+        );
+      }
     });
 
     return Response.json({ ok: true, updated: 1 });
@@ -86,18 +99,25 @@ export async function PATCH(
 
   // 每堂各自保留原本的日期，只換時間，所以逐筆更新而非一次 updateMany。
   await prisma.$transaction(async (tx) => {
+    const moved: { id: string; oldStartAt: Date }[] = [];
+
     for (const s of future) {
+      const newStartAt = body.time
+        ? taipeiDateTime(ymdInTaipei(s.startAt), body.time)
+        : s.startAt;
+
       await tx.session.update({
         where: { id: s.id },
-        data: {
-          ...common,
-          ...(body.time
-            ? { startAt: taipeiDateTime(ymdInTaipei(s.startAt), body.time) }
-            : {}),
-        },
+        data: { ...common, startAt: newStartAt },
       });
       await rescheduleReminders(tx, s.id);
+
+      if (newStartAt.getTime() !== s.startAt.getTime()) {
+        moved.push({ id: s.id, oldStartAt: s.startAt });
+      }
     }
+
+    await enqueueSessionChange(tx, moved, "rescheduled");
   });
 
   return Response.json({ ok: true, updated: future.length });
@@ -121,8 +141,10 @@ export async function DELETE(
 
   if (scope === "single" || !session.seriesId) {
     await prisma.$transaction(async (tx) => {
+      // 必須在標記取消前排入：enqueueSessionChange 要讀 session_participants，
+      // 而通知內容渲染時會查課程資料，取消狀態不影響參與者，順序上安全。
+      await enqueueSessionChange(tx, [{ id }], "cancelled");
       await tx.session.update({ where: { id }, data: { status: "cancelled" } });
-      // 課取消了，還沒送出的提醒不該再送。
       await cancelPendingNotifications(tx, [id]);
     });
     return Response.json({ ok: true, cancelled: 1 });
@@ -140,6 +162,11 @@ export async function DELETE(
     });
     const ids = targets.map((t) => t.id);
 
+    await enqueueSessionChange(
+      tx,
+      ids.map((id) => ({ id })),
+      "cancelled",
+    );
     await tx.session.updateMany({
       where: { id: { in: ids } },
       data: { status: "cancelled" },
