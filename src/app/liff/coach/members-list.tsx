@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { ErrorBox, Hint, Screen, Title } from "../ui";
 import CopyableLink from "../copyable-link";
+import InviteMember from "./invite-member";
 
 type MemberRow = {
   id: string;
@@ -16,6 +17,9 @@ type MemberRow = {
 type ListResult = { members: MemberRow[]; linkedCount: number; totalCount: number };
 
 export default function MembersList({ idToken }: { idToken: string }) {
+  // 邀請學員從 Rich Menu 移到這裡——邀請本來就是管理學員的子動作，
+  // 而選單格數有限，留給每天都會用到的功能。
+  const [inviting, setInviting] = useState(false);
   const [data, setData] = useState<ListResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,9 +63,21 @@ export default function MembersList({ idToken }: { idToken: string }) {
 
   const unlinked = data.totalCount - data.linkedCount;
 
+  if (inviting) {
+    return <InviteMember idToken={idToken} onBack={() => { setInviting(false); reload(); }} />;
+  }
+
   return (
     <Screen>
-      <Title>我的學員</Title>
+      <div className="flex items-center justify-between">
+        <Title>我的學員</Title>
+        <button
+          onClick={() => setInviting(true)}
+          className="rounded-full bg-[#06C755] px-4 py-2 text-sm font-semibold text-white"
+        >
+          ＋ 邀請
+        </button>
+      </div>
 
       {/* 已連結率是本產品的第一北極星指標，放在最顯眼處（SPEC.md §8、§13）。 */}
       <div className="mt-4 rounded-2xl bg-white p-5 shadow-sm">

@@ -1,7 +1,6 @@
 "use client";
 
 import DayView from "./day-view";
-import InviteMember from "./invite-member";
 import MembersList from "./members-list";
 import ScheduleForm from "./schedule-form";
 import { Hint, Screen, Title } from "../ui";
@@ -15,9 +14,6 @@ export default function CoachApp({
   page: string | null;
 }) {
   switch (page) {
-    case "invite":
-      return <InviteMember idToken={idToken} />;
-
     case "members":
       return <MembersList idToken={idToken} />;
 

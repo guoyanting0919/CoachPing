@@ -14,7 +14,13 @@ const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID;
 const API = "https://api.line.me/v2/bot";
 const DATA_API = "https://api-data.line.me/v2/bot";
 
-type Cell = { label: string; icon: IconName; page: string };
+/**
+ * page：點擊後開啟 LIFF 的對應頁面。
+ * postback：點擊後不開網頁，由 webhook 直接回覆文字訊息。
+ */
+type Cell =
+  | { label: string; icon: IconName; page: string }
+  | { label: string; icon: IconName; postback: string };
 
 /**
  * 自繪線條圖示，皆以 100x100 的 viewBox 定義。
@@ -33,6 +39,7 @@ const ICONS = {
   person: `<circle cx="50" cy="33" r="16"/><path d="M20 86 c0-17 13-29 30-29 s30 12 30 29"/>`,
   cross: `<rect x="14" y="26" width="72" height="60" rx="9"/><path d="M14 46 H86"/><path d="M39 60 l22 20 M61 60 l-22 20"/>`,
   pencil: `<path d="M27 73 l-7 14 14-7 44-44 -7-7 z"/><path d="M64 25 l7 7"/><path d="M18 92 H86"/>`,
+  list: `<path d="M38 28 H86 M38 50 H86 M38 72 H86"/><circle cx="20" cy="28" r="4"/><circle cx="20" cy="50" r="4"/><circle cx="20" cy="72" r="4"/>`,
 } as const;
 
 type IconName = keyof typeof ICONS;
@@ -66,12 +73,15 @@ const MENUS: Record<string, { chatBarText: string; rows: Cell[][] }> = {
     chatBarText: "教練選單",
     rows: [
       [
-        { label: "今日課表", icon: "calendar", page: "today" },
+        // 今日課表走 postback：直接回一則文字訊息，不必等網頁載入。
+        // 教練在健身房現場最常做的就是瞄一眼今天有誰。
+        { label: "今日課表", icon: "list", postback: "today" },
+        { label: "我的課表", icon: "calendar", page: "today" },
         { label: "排課", icon: "plus", page: "schedule" },
-        { label: "我的學員", icon: "people", page: "members" },
       ],
       [
-        { label: "邀請學員", icon: "link", page: "invite" },
+        // 邀請學員併入「我的學員」頁面——邀請本來就是管理學員的子動作。
+        { label: "我的學員", icon: "people", page: "members" },
         { label: "請假通知", icon: "bell", page: "leaves" },
         { label: "設定", icon: "sliders", page: "settings" },
       ],
@@ -174,11 +184,20 @@ async function main() {
       const cols = row.length === 3 ? COLS_3 : row.length === 2 ? COLS_2 : [{ x: 0, w: 2500 }];
       return row.map((cell, c) => ({
         bounds: { x: cols[c].x, y: r * ROW_H, width: cols[c].w, height: ROW_H },
-        action: {
-          type: "uri" as const,
-          label: cell.label,
-          uri: `https://liff.line.me/${LIFF_ID}?p=${cell.page}`,
-        },
+        action:
+          "postback" in cell
+            ? {
+                type: "postback" as const,
+                label: cell.label,
+                data: `action=${cell.postback}`,
+                // 讓聊天室留下「教練問了什麼」的紀錄，回覆才不會沒頭沒尾。
+                displayText: cell.label,
+              }
+            : {
+                type: "uri" as const,
+                label: cell.label,
+                uri: `https://liff.line.me/${LIFF_ID}?p=${cell.page}`,
+              },
       }));
     });
 
@@ -210,6 +229,32 @@ async function main() {
   // 未註冊者尚未觸發任何綁定邏輯，設為預設選單讓他們一加好友就看得到。
   await lineFetch(`${API}/user/all/richmenu/${ids.unregistered}`, { method: "POST" });
   console.log("✓ 已將 unregistered 設為預設選單");
+
+  // 舊選單被刪除時，已綁定的使用者會連帶失去選單。重新綁回去，
+  // 這支腳本才能安全地重複執行。
+  const { prisma } = await import("../src/lib/prisma");
+  try {
+    const coaches = await prisma.coach.findMany({ select: { lineUserId: true } });
+    const members = await prisma.member.findMany({
+      where: { lineUserId: { not: null }, lineBlocked: false },
+      select: { lineUserId: true },
+    });
+
+    for (const c of coaches) {
+      if (c.lineUserId.startsWith("detached:")) continue;
+      await lineFetch(`${API}/user/${c.lineUserId}/richmenu/${ids.coach}`, {
+        method: "POST",
+      }).catch((e) => console.warn(`  教練 ${c.lineUserId} 綁定失敗:`, e.message));
+    }
+    for (const m of members) {
+      await lineFetch(`${API}/user/${m.lineUserId}/richmenu/${ids.member}`, {
+        method: "POST",
+      }).catch((e) => console.warn(`  學員 ${m.lineUserId} 綁定失敗:`, e.message));
+    }
+    console.log(`✓ 已重新綁定 ${coaches.length} 位教練、${members.length} 位學員`);
+  } finally {
+    await prisma.$disconnect();
+  }
 
   console.log("\n把以下三行填進 .env 與 Vercel 環境變數：\n");
   console.log(`LINE_RICHMENU_UNREGISTERED="${ids.unregistered}"`);

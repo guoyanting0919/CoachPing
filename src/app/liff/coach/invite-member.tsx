@@ -7,7 +7,13 @@ import { Button, ErrorBox, Field, Hint, Screen, TextInput, Title } from "../ui";
 
 type CreateResult = { member: { id: string; name: string }; inviteUrl: string };
 
-export default function InviteMember({ idToken }: { idToken: string }) {
+export default function InviteMember({
+  idToken,
+  onBack,
+}: {
+  idToken: string;
+  onBack: () => void;
+}) {
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +54,7 @@ export default function InviteMember({ idToken }: { idToken: string }) {
           他還沒加入之前你就可以先幫他排課，只是系統無法自動通知他。
         </p>
 
-        <div className="mt-6">
+        <div className="mt-6 space-y-3">
           <Button
             onClick={() => {
               setResult(null);
@@ -57,6 +63,12 @@ export default function InviteMember({ idToken }: { idToken: string }) {
           >
             再邀請一位
           </Button>
+          <button
+            onClick={onBack}
+            className="w-full py-2 text-sm text-slate-500 underline"
+          >
+            回到學員清單
+          </button>
         </div>
       </Screen>
     );
@@ -64,7 +76,12 @@ export default function InviteMember({ idToken }: { idToken: string }) {
 
   return (
     <Screen>
-      <Title>邀請學員</Title>
+      <div className="flex items-center justify-between">
+        <Title>邀請學員</Title>
+        <button onClick={onBack} className="text-sm text-slate-500">
+          返回
+        </button>
+      </div>
       <Hint>填學員的名字，系統會產生一條專屬連結給你轉傳。</Hint>
 
       <form onSubmit={submit} className="mt-6 space-y-5">

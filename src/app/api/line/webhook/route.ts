@@ -1,6 +1,7 @@
 import type { webhook } from "@line/bot-sdk";
 import { bindRichMenu, replyText, resolveRole, verifySignature } from "@/lib/line";
 import { prisma } from "@/lib/prisma";
+import { buildCoachTodayText } from "@/lib/today-schedule";
 
 export const runtime = "nodejs";
 // webhook 必須每次即時處理，不可被快取或預先產生。
@@ -54,11 +55,39 @@ async function handleEvent(event: webhook.Event): Promise<void> {
 
     case "message":
       if (event.message.type !== "text" || !event.replyToken) return;
-      return handleTextMessage(lineUserId, event.replyToken);
+      return handleTextMessage(lineUserId, event.replyToken, event.message.text);
+
+    case "postback":
+      if (!event.replyToken) return;
+      return handlePostback(lineUserId, event.replyToken, event.postback.data);
 
     default:
       return;
   }
+}
+
+/** Rich Menu 的 postback 按鈕。回覆一律用 reply（免費），不佔推播額度。 */
+async function handlePostback(
+  lineUserId: string,
+  replyToken: string,
+  data: string,
+): Promise<void> {
+  const action = new URLSearchParams(data).get("action");
+
+  if (action === "today") {
+    const coach = await prisma.coach.findUnique({
+      where: { lineUserId },
+      select: { id: true },
+    });
+    if (!coach) {
+      await replyText(replyToken, "這個功能只有教練可以使用。");
+      return;
+    }
+    await replyText(replyToken, await buildCoachTodayText(coach.id));
+    return;
+  }
+
+  console.warn("[webhook] 未知的 postback action:", data);
 }
 
 async function handleFollow(lineUserId: string, replyToken: string): Promise<void> {
@@ -87,13 +116,31 @@ async function handleUnfollow(lineUserId: string): Promise<void> {
   });
 }
 
-async function handleTextMessage(lineUserId: string, replyToken: string): Promise<void> {
+/** 教練打這些字也能查今日課表，不必一定要點選單。 */
+const TODAY_KEYWORDS = ["今日課表", "今天課表", "課表", "今日"];
+
+async function handleTextMessage(
+  lineUserId: string,
+  replyToken: string,
+  message: string,
+): Promise<void> {
   const role = await resolveRole(lineUserId);
+
+  if (role === "coach" && TODAY_KEYWORDS.includes(message.trim())) {
+    const coach = await prisma.coach.findUnique({
+      where: { lineUserId },
+      select: { id: true },
+    });
+    if (coach) {
+      await replyText(replyToken, await buildCoachTodayText(coach.id));
+      return;
+    }
+  }
 
   // 一律使用 reply（免費），不要用 push 回應學員訊息。
   const text =
     role === "coach"
-      ? "請點下方選單操作排課、查看學員或處理請假。"
+      ? "請點下方選單操作排課、查看學員或處理請假。也可以直接輸入「今日課表」。"
       : role === "member"
         ? "課表查詢與請假請點下方選單。想找教練聊聊請點「聯絡教練」。"
         : "請先點下方選單完成註冊。";
