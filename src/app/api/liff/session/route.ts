@@ -68,18 +68,31 @@ export async function POST(req: Request): Promise<Response> {
       select: {
         usedAt: true,
         expiresAt: true,
+        coachId: true,
+        memberId: true,
         coach: { select: { name: true } },
-        member: { select: { displayName: true } },
       },
     });
     if (memberInvite) {
+      // 建議名字取自教練在關係上填的稱呼，不是 members.display_name——
+      // 後者是學員自報的，可能是別的教練認得的名字。
+      const link = await prisma.coachMember.findUnique({
+        where: {
+          coachId_memberId: {
+            coachId: memberInvite.coachId,
+            memberId: memberInvite.memberId,
+          },
+        },
+        select: { displayName: true },
+      });
+
       return Response.json({
         role: "none",
         invite: {
           kind: "member",
           valid: !memberInvite.usedAt && memberInvite.expiresAt > new Date(),
           coachName: memberInvite.coach.name,
-          suggestedName: memberInvite.member.displayName,
+          suggestedName: link?.displayName ?? "",
         },
         lineName: verified.displayName,
       });

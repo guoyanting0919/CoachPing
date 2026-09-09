@@ -75,7 +75,9 @@ model Coach {
 }
 
 model Member {
-  id          String @id @default(uuid())
+  id String @id @default(uuid())
+
+  /// 學員自報的名字，僅用於學員端自己的畫面。教練端請讀 coach_members.display_name。
   displayName String @map("display_name")
 
   /// null 表示尚未完成註冊。教練仍可為其排課，推播時跳過並改走降級流程（SPEC.md §8）。
@@ -101,6 +103,10 @@ model CoachMember {
   coachId  String            @map("coach_id")
   memberId String            @map("member_id")
   status   CoachMemberStatus @default(active)
+
+  /// 這位教練對該學員的稱呼。教練端一律顯示此欄位，不讀 members.display_name——
+  /// 同一學員可能屬於多位教練，共用名字會讓 A 教練取的稱呼洩漏給 B 教練。
+  displayName String @map("display_name")
 
   createdAt DateTime @default(now()) @map("created_at")
 

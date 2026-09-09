@@ -98,6 +98,7 @@ coach_members
   coach_id              uuid fk
   member_id             uuid fk
   status                enum(active, inactive) default active
+  display_name          text                 -- 這位教練對該學員的稱呼
   created_at            timestamptz
   primary key (coach_id, member_id)
 
@@ -164,6 +165,8 @@ LIFF 前端傳來的 `userId` **一律不可信任**——那只是一段 JSON�
 
 - **師生關係為多對多**。學員以 `line_user_id` 全域唯一，同一人被兩位教練邀請時共用同一筆 `members`，透過 `coach_members` 掛兩段關係。
 - **隱私硬規則**：教練只能讀取 `coach_id` 等於自己的 `sessions`，以及自己 `coach_members` 中的學員。A 教練不得得知學員也在上 B 教練的課。所有查詢一律帶 `coach_id` 條件，無例外。
+- **學員名字掛在關係上**：教練端顯示的名字一律讀 `coach_members.display_name`，不讀 `members.display_name`。同一學員可能屬於多位教練，共用名字會讓 A 教練取的稱呼洩漏給 B 教練，違反上一條隱私規則。`members.display_name` 僅用於學員端自己的畫面。
+- **重複人員必須合併**：教練邀請學員時會先建立 `line_user_id` 為 null 的佔位記錄；若該 LINE 使用者其實已是別的教練的學員，註冊時必須把佔位記錄**合併**進既有記錄（搬移 `session_participants`、改指 `invites`、重建 `coach_members`），不可產生第二筆 `members`。
 - **只停用、不刪除**。學員離開時 `coach_members.status = inactive`，歷史記錄保留。停用時詢問「是否同時取消未來的 N 堂課」，預設是。
 - **時區**寫死 `Asia/Taipei`，全系統不做多時區。
 
@@ -311,7 +314,7 @@ Vercel Hobby 方案的內建 cron 僅支援每日一次，故排程走外部服�
 |---|---|---|
 | 1 | 專案骨架、LINE channel／LIFF 設定、webhook、資料表 ✅ | 8h |
 | 2 | 教練註冊 + Rich Menu 角色綁定 ✅ | 8h |
-| 3 | 邀請學員 + 學員註冊 + 關聯建立 | 8h |
+| 3 | 邀請學員 + 學員註冊 + 關聯建立 ✅ | 8h |
 | 4 | **排課 UI**（單次 + 重複展開 12 週） | 16h |
 | 5 | 通知佇列 + cron + 課前提醒 | 8h |
 | 6 | 學員課表 + 請假流程 | 10h |
