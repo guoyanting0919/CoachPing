@@ -163,16 +163,19 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
         <Section title="時間">
           <div className="flex items-center gap-3">
             <TimeSelect value={time} onChange={setTime} />
-            <Select
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
-            >
-              {[30, 45, 60, 75, 90, 120].map((m) => (
-                <option key={m} value={m}>
-                  {m} 分
-                </option>
-              ))}
-            </Select>
+            {/* 時長吃掉剩餘寬度，min-w-0 讓它可以收縮而不是去擠時間下拉。 */}
+            <div className="min-w-0 flex-1">
+              <Select
+                value={duration}
+                onChange={(e) => setDuration(Number(e.target.value))}
+              >
+                {[30, 45, 60, 75, 90, 120].map((m) => (
+                  <option key={m} value={m}>
+                    {m} 分
+                  </option>
+                ))}
+              </Select>
+            </div>
           </div>
         </Section>
 

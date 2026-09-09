@@ -156,6 +156,14 @@ const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 /** 私教排課都落在整點或半點，開放到分鐘只會讓教練多滑很久。 */
 const MINUTES = ["00", "30"];
 
+/**
+ * 時／分兩段式選擇。
+ * 刻意不共用 controlClass：那裡帶 w-full，放進 flex 容器會被旁邊的元素
+ * 擠成只剩箭頭。這裡改用內容寬度並禁止收縮。
+ */
+const timeSelectClass =
+  "shrink-0 rounded-xl border border-slate-200 bg-white py-3 pl-3 pr-1 text-base text-slate-900 outline-none focus:border-[#06C755]";
+
 export function TimeSelect({
   value,
   onChange,
@@ -166,22 +174,30 @@ export function TimeSelect({
   const [hh = "19", mm = "00"] = value.split(":");
 
   return (
-    <div className="flex items-center gap-2">
-      <Select value={hh} onChange={(e) => onChange(`${e.target.value}:${mm}`)}>
+    <div className="flex shrink-0 items-center gap-1.5">
+      <select
+        value={hh}
+        onChange={(e) => onChange(`${e.target.value}:${mm}`)}
+        className={timeSelectClass}
+      >
         {HOURS.map((h) => (
           <option key={h} value={h}>
             {h}
           </option>
         ))}
-      </Select>
+      </select>
       <span className="text-slate-400">:</span>
-      <Select value={mm} onChange={(e) => onChange(`${hh}:${e.target.value}`)}>
+      <select
+        value={mm}
+        onChange={(e) => onChange(`${hh}:${e.target.value}`)}
+        className={timeSelectClass}
+      >
         {MINUTES.map((m) => (
           <option key={m} value={m}>
             {m}
           </option>
         ))}
-      </Select>
+      </select>
     </div>
   );
 }

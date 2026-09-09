@@ -73,7 +73,10 @@ export default function SessionActions({
           <DateInput value={date} onChange={(e) => setDate(e.target.value)} />
         ) : null}
 
-        <TimeSelect value={time} onChange={setTime} />
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-500">時間</span>
+          <TimeSelect value={time} onChange={setTime} />
+        </div>
 
         {isSeries ? (
           <ScopePicker
