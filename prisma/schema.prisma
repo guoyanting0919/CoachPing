@@ -43,7 +43,8 @@ enum NotificationStatus {
 enum NotificationType {
   member_reminder // 學員：課前提醒
   member_change // 學員：課程取消／改期
-  coach_daily // 教練：每日 08:00 今日課表彙總
+  member_schedule // 學員：教練排課完成後的課表彙總
+  coach_daily // 教練：每日 08:00 今日課表彙總（已取消，見 SPEC.md §5）
   coach_leave // 教練：學員請假通知
 }
 

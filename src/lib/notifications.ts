@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { prisma } from "./prisma";
-import { fmt, fmtTimeRange, weekdayZh } from "./time";
+import { fmt, fmtTimeRange, taipeiDateTime, weekdayZh, ymd } from "./time";
 
 /**
  * 推播佇列（SPEC.md §5）。
@@ -73,6 +73,156 @@ export async function enqueueSessionReminders(
 
   await db.notification.createMany({ data: rows });
   return rows.length;
+}
+
+/**
+ * 排課完成通知（SPEC.md §5）。
+ *
+ * 教練排完課後，給每位「已連結 LINE」的學員一則彙總：上半部是這次排定的課，
+ * 下半部是接下來一整段時間的完整課表。一次排課動作每位學員只發一則，
+ * 重複課程展開成 12 堂也還是一則。
+ *
+ * 範圍終點在排課當下算好存進 payload——它反映「這次排了什麼」，是歷史事實，
+ * 送出時重算沒有意義。起點則永遠是送出當下，才不會列出已經上完的課。
+ */
+export async function enqueueScheduleNotice(
+  db: Db,
+  coachId: string,
+  sessionIds: string[],
+  memberIds: string[],
+  lastStartAt: Date,
+): Promise<number> {
+  if (sessionIds.length === 0 || memberIds.length === 0) return 0;
+
+  const members = await db.member.findMany({
+    where: { id: { in: memberIds }, lineUserId: { not: null } },
+    select: { id: true, lineUserId: true },
+  });
+  if (members.length === 0) return 0;
+
+  const rangeEndAt = scheduleRangeEnd(lastStartAt);
+
+  await db.notification.createMany({
+    data: members.map((m) => ({
+      targetLineUserId: m.lineUserId!,
+      type: "member_schedule" as const,
+      payload: {
+        memberId: m.id,
+        sessionIds,
+        rangeEndAt: rangeEndAt.toISOString(),
+      },
+      sendAt: new Date(),
+      coachId,
+    })),
+  });
+
+  return members.length;
+}
+
+/**
+ * 課表彙總的範圍終點：今天起一個月後的當日 23:59，或這次最後一堂課，取較晚者。
+ *
+ * 取較晚者是為了避免自相矛盾——教練最多可一次排 12 週（約 3 個月），
+ * 若硬性只列一個月，這則「排課完成通知」會看不到自己剛排的課。
+ *
+ * 日曆運算走 UTC 整數天再轉台北時刻，與 schedule.ts 一致，
+ * 避免伺服器時區（Vercel 上是 UTC）影響日期判斷。
+ */
+function scheduleRangeEnd(lastStartAt: Date, now = new Date()): Date {
+  const [y, m, d] = ymd(now).split("-").map(Number);
+
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  // 下個月沒有這一天時退到該月最後一天（1/31 → 2/28）。
+  const lastDayOfNextMonth = new Date(Date.UTC(ny, nm, 0)).getUTCDate();
+  const nd = Math.min(d, lastDayOfNextMonth);
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const oneMonthOut = taipeiDateTime(`${ny}-${pad(nm)}-${pad(nd)}`, "23:59");
+
+  return lastStartAt > oneMonthOut ? lastStartAt : oneMonthOut;
+}
+
+/** 下半部的顯示上限。超過就請學員自己去看課表，不把訊息塞爆。 */
+const SCHEDULE_LIST_LIMIT = 30;
+
+/** 「9/17 (三) 19:00–20:00 @ 大安店」。地點接在同一行，另起一行會讓清單散掉。 */
+function scheduleLine(s: { startAt: Date; durationMin: number; location: string | null }) {
+  const base = `${fmt(s.startAt, "M/d")} (${weekdayZh(s.startAt)}) ${fmtTimeRange(s.startAt, s.durationMin)}`;
+  return s.location ? `${base} @ ${s.location}` : base;
+}
+
+/** 學員收到的排課完成通知。 */
+export async function renderMemberSchedule(
+  coachId: string | null,
+  payload: { memberId?: string; sessionIds?: string[]; rangeEndAt?: string } | null,
+): Promise<string | null> {
+  if (!coachId || !payload?.memberId || !payload.sessionIds?.length) return null;
+
+  const coach = await prisma.coach.findUnique({
+    where: { id: coachId },
+    select: { name: true },
+  });
+  if (!coach) return null;
+
+  const select = {
+    startAt: true,
+    durationMin: true,
+    location: true,
+  } as const;
+
+  // 上半部：這次排定的課。限定 scheduled，所以排完立刻被取消的那幾堂會自動消失。
+  const created = await prisma.session.findMany({
+    where: { id: { in: payload.sessionIds }, status: "scheduled" },
+    orderBy: { startAt: "asc" },
+    select,
+  });
+
+  // 這次排的課全被取消了，這則通知就失去意義。取消本身已有 member_change 通知過。
+  if (created.length === 0) return null;
+
+  const rangeEnd = payload.rangeEndAt ? new Date(payload.rangeEndAt) : null;
+
+  // 下半部：範圍內這位教練的全部課程，含上半部那幾堂（重複顯示是刻意的——
+  // 下半部要能獨立當成一份完整課表閱讀，缺一角就得靠學員自己在腦中合併）。
+  const upcomingWhere = {
+    coachId,
+    status: "scheduled" as const,
+    startAt: rangeEnd ? { gte: new Date(), lte: rangeEnd } : { gte: new Date() },
+    participants: { some: { memberId: payload.memberId } },
+  };
+
+  const shown = await prisma.session.findMany({
+    where: upcomingWhere,
+    orderBy: { startAt: "asc" },
+    take: SCHEDULE_LIST_LIMIT,
+    select,
+  });
+
+  // 撈滿上限才去數總數。用 take: LIMIT + 1 推算是錯的——那只知道「超過 30」，
+  // 實際有 40 堂時會顯示「還有 1 堂」。多一次 count 只發生在真的超量時。
+  const overflow =
+    shown.length === SCHEDULE_LIST_LIMIT
+      ? (await prisma.session.count({ where: upcomingWhere })) - SCHEDULE_LIST_LIMIT
+      : 0;
+
+  const lines = [
+    "【課程已排定】",
+    "",
+    `${coach.name}為你排定了 ${created.length} 堂課`,
+    ...created.map(scheduleLine),
+  ];
+
+  if (shown.length > 0) {
+    lines.push("", "你接下來的課表", ...shown.map(scheduleLine));
+    if (overflow > 0) {
+      lines.push(`還有 ${overflow} 堂，請點下方選單的「我的課表」查看`);
+    }
+  }
+
+  lines.push("", "無法出席請點下方選單請假。");
+
+  return lines.join("\n");
 }
 
 /** 課程改期：連同尚未送出的提醒一起移動。 */

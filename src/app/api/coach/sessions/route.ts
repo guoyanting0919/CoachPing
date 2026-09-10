@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireCoach } from "@/lib/auth";
 import { flushNotifications } from "@/lib/dispatch";
-import { enqueueSessionReminders } from "@/lib/notifications";
+import {
+  enqueueScheduleNotice,
+  enqueueSessionReminders,
+} from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import {
   DEFAULT_WEEKS,
@@ -156,11 +159,21 @@ export async function POST(req: Request): Promise<Response> {
       ids.push(created.id);
     }
 
+    // 排課完成通知：每位已連結的學員一則，內容是這次排的課 + 接下來的完整課表。
+    // 與課程建立同一個 transaction，否則會出現「課排好了但通知沒排進去」。
+    await enqueueScheduleNotice(
+      tx,
+      coach.id,
+      ids,
+      body.memberIds,
+      startTimes[startTimes.length - 1],
+    );
+
     return enqueueSessionReminders(tx, ids);
   });
 
-  // 距上課已不足 reminderHours 的課，提醒的 sendAt 就是現在（見 notifications.ts）。
-  // 那種「今天排明天的課」的情境不該等下一次 cron。
+  // 排課完成通知的 sendAt 就是現在，必須立刻送出——學員在等教練排完課的回音。
+  // 順帶也涵蓋「今天排明天的課」：那種提醒的 sendAt 同樣是現在（見 notifications.ts）。
   flushNotifications();
 
   return Response.json({ created: startTimes.length, seriesId, reminders });

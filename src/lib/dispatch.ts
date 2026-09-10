@@ -4,6 +4,7 @@ import {
   renderCoachLeave,
   renderMemberChange,
   renderMemberReminder,
+  renderMemberSchedule,
 } from "./notifications";
 import { prisma } from "./prisma";
 
@@ -32,6 +33,7 @@ type Claimed = {
   type: string;
   targetLineUserId: string;
   sessionId: string | null;
+  coachId: string | null;
   payload: unknown;
   attempts: number;
 };
@@ -80,6 +82,7 @@ export async function dispatchDue(): Promise<DispatchResult> {
       type::text AS type,
       target_line_user_id AS "targetLineUserId",
       session_id AS "sessionId",
+      coach_id AS "coachId",
       payload,
       attempts
   `;
@@ -159,6 +162,12 @@ async function renderText(n: Claimed): Promise<string | null> {
       const id = (n.payload as { leaveRequestId?: string } | null)?.leaveRequestId;
       return id ? renderCoachLeave(id) : null;
     }
+
+    case "member_schedule":
+      return renderMemberSchedule(
+        n.coachId,
+        n.payload as Parameters<typeof renderMemberSchedule>[1],
+      );
 
     case "member_change":
       return renderMemberChange(

@@ -14,6 +14,7 @@ export const dynamic = "force-dynamic";
 const TYPE_LABELS: Record<NotificationType, string> = {
   member_reminder: "學員：課前提醒",
   member_change: "學員：課程異動",
+  member_schedule: "學員：排課完成",
   coach_daily: "教練：每日課表",
   coach_leave: "教練：學員請假",
 };
