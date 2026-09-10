@@ -96,10 +96,17 @@ export default async function CoachesPage() {
                       </span>
                     )}
                   </div>
-                  {/* 不做撤銷：碼是一次性且會過期，發錯了重發一組就好。
-                      真要刪，Prisma Studio 刪一列比多一個確認對話框划算。 */}
-                  <code className="mt-1.5 block text-xs break-all text-slate-400 select-all">
-                    {i.token}
+                  {/* 顯示完整 LIFF 連結而非裸 token——這串是要直接貼給教練的。
+                      select-all 讓點一下就整串選起來，不必自己拖曳。
+                      不做撤銷：碼是一次性且會過期，發錯了重發一組就好。 */}
+                  <code
+                    className={`mt-1.5 block rounded border px-2 py-1.5 text-xs break-all select-all ${
+                      i.expired
+                        ? "border-slate-200 bg-slate-50 text-slate-400 line-through"
+                        : "border-slate-200 bg-slate-50 text-slate-600"
+                    }`}
+                  >
+                    {i.url}
                   </code>
                 </li>
               ))}

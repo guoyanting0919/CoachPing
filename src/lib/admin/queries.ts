@@ -1,4 +1,5 @@
 import type { NotificationType } from "@/generated/prisma/enums";
+import { inviteUrl } from "../auth";
 import { prisma } from "../prisma";
 import { ymd } from "../time";
 import {
@@ -225,6 +226,8 @@ export async function listCoaches(): Promise<CoachRow[]> {
 
 export type PendingInvite = {
   token: string;
+  /** 完整的 LIFF 連結。教練要的是這個，不是裸 token。 */
+  url: string;
   label: string;
   expiresAt: Date;
   createdAt: Date;
@@ -273,6 +276,7 @@ export async function listCoachInvites(): Promise<{
       .filter((i) => !i.usedAt)
       .map((i) => ({
         token: i.token,
+        url: inviteUrl(i.token),
         label: i.label,
         expiresAt: i.expiresAt,
         createdAt: i.createdAt,
