@@ -29,7 +29,7 @@ export async function enqueueSessionReminders(
     select: {
       id: true,
       startAt: true,
-      coach: { select: { reminderHours: true } },
+      coach: { select: { id: true, reminderHours: true } },
       participants: {
         select: { member: { select: { id: true, lineUserId: true } } },
       },
@@ -43,6 +43,7 @@ export async function enqueueSessionReminders(
     payload: { memberId: string };
     sendAt: Date;
     sessionId: string;
+    coachId: string;
   }[] = [];
 
   for (const s of sessions) {
@@ -63,6 +64,7 @@ export async function enqueueSessionReminders(
         // 而不是默默略過——學員仍然需要知道。
         sendAt: sendAt < now ? now : sendAt,
         sessionId: s.id,
+        coachId: s.coach.id,
       });
     }
   }
@@ -210,6 +212,7 @@ export async function enqueueCoachLeave(
   leaveRequestId: string,
   sessionId: string,
   coachLineUserId: string,
+  coachId: string,
 ): Promise<void> {
   await db.notification.createMany({
     data: [
@@ -219,6 +222,7 @@ export async function enqueueCoachLeave(
         payload: { leaveRequestId },
         sendAt: new Date(),
         sessionId,
+        coachId,
       },
     ],
   });
@@ -325,6 +329,7 @@ export async function enqueueMemberChange(
   db: Db,
   targetLineUserId: string,
   sessionId: string,
+  coachId: string,
   payload: MemberChangePayload,
 ): Promise<void> {
   await db.notification.createMany({
@@ -335,6 +340,7 @@ export async function enqueueMemberChange(
         payload,
         sendAt: new Date(),
         sessionId,
+        coachId,
       },
     ],
   });
@@ -353,7 +359,11 @@ export async function enqueueSessionChange(
 
   const participants = await db.sessionParticipant.findMany({
     where: { sessionId: { in: sessions.map((s) => s.id) } },
-    select: { sessionId: true, member: { select: { lineUserId: true } } },
+    select: {
+      sessionId: true,
+      session: { select: { coachId: true } },
+      member: { select: { lineUserId: true } },
+    },
   });
 
   const oldById = new Map(sessions.map((s) => [s.id, s.oldStartAt]));
@@ -371,6 +381,7 @@ export async function enqueueSessionChange(
       },
       sendAt: now,
       sessionId: p.sessionId,
+      coachId: p.session.coachId,
     }));
 
   if (rows.length === 0) return 0;

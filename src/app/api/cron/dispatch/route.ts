@@ -108,10 +108,11 @@ async function deliver(n: Claimed): Promise<boolean> {
     const text = await renderText(n);
 
     // 內容已無意義（例如課程在排入佇列後被取消）就標記完成，不送出。
+    // 標記為 skipped 而非 sent：沒送出就沒計費，混進 sent 會讓後台的推播用量虛高。
     if (text === null) {
       await prisma.notification.update({
         where: { id: n.id },
-        data: { status: "sent", sentAt: new Date(), error: "skipped: 內容已失效" },
+        data: { status: "skipped", sentAt: new Date(), error: "內容已失效" },
       });
       return true;
     }

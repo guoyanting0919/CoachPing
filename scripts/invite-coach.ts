@@ -1,6 +1,9 @@
 /**
  * 產生教練邀請連結。MVP 階段教練不自助註冊，由開發者手動發碼（SPEC.md §3.1）。
  *
+ * ⚠️ 日常請改用管理後台 /admin/coaches 的「新增教練」（SPEC.md §16）。
+ *    這支腳本留著當逃生口：後台掛掉、密碼弄丟、或沒有瀏覽器時還能發碼。
+ *
  *   npx tsx scripts/invite-coach.ts "王教練" [有效天數，預設 14]
  */
 import { prisma } from "../src/lib/prisma";

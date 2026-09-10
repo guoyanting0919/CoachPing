@@ -72,7 +72,13 @@ export async function POST(req: Request): Promise<Response> {
       : { sessionCancelled: false };
 
     // 通知教練與請假本身必須同時成立，否則會出現「學員請了假但教練不知道」。
-    await enqueueCoachLeave(tx, leave.id, session.id, session.coach.lineUserId);
+    await enqueueCoachLeave(
+      tx,
+      leave.id,
+      session.id,
+      session.coach.lineUserId,
+      session.coach.id,
+    );
 
     return applied;
   });

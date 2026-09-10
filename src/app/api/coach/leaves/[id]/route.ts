@@ -46,10 +46,16 @@ export async function POST(
 
     // 學員在等結果，通知與決定必須同時成立。
     if (leave.member.lineUserId) {
-      await enqueueMemberChange(tx, leave.member.lineUserId, leave.sessionId, {
-        kind: approve ? "leave_approved" : "leave_rejected",
-        leaveRequestId: leave.id,
-      });
+      await enqueueMemberChange(
+        tx,
+        leave.member.lineUserId,
+        leave.sessionId,
+        auth.value.id,
+        {
+          kind: approve ? "leave_approved" : "leave_rejected",
+          leaveRequestId: leave.id,
+        },
+      );
     }
 
     return applied;

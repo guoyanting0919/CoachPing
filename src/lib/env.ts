@@ -16,6 +16,11 @@ const serverSchema = z.object({
   APP_BASE_URL: z.url(),
   CRON_SECRET: z.string().min(1),
 
+  // 管理後台（SPEC.md §16）。單一密碼、單一權限。
+  // 刻意不做登入失敗 rate limit，所以密碼長度是唯一的防線，強制至少 16 字元。
+  ADMIN_PASSWORD: z.string().min(16),
+  // 簽 admin session cookie 用。與 CRON_SECRET 分開，避免一個外洩全倒。
+  ADMIN_SESSION_SECRET: z.string().min(16),
 });
 
 type ServerEnv = z.infer<typeof serverSchema>;

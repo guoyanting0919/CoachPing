@@ -34,6 +34,9 @@ enum NotificationStatus {
   sending
   sent
   failed
+  /// 取走後發現內容已失效（例如課程在排入佇列後被取消），沒有真的送出。
+  /// 與 sent 分開才算得準計費推播數——LINE 只對真的送出去的訊息收費（SPEC.md §16）。
+  skipped
 }
 
 /// 通知類型。對應 SPEC.md §5。
@@ -69,9 +72,10 @@ model Coach {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  members  CoachMember[]
-  invites  Invite[]
-  sessions Session[]
+  members       CoachMember[]
+  invites       Invite[]
+  sessions      Session[]
+  notifications Notification[]
 
   @@map("coaches")
 }
@@ -123,13 +127,13 @@ model CoachMember {
 /// 教練邀請碼。MVP 階段由開發者手動產生後私下給教練（SPEC.md §3.1），
 /// 不做教練自助註冊。與 Invite（學員邀請）語義不同，故分表。
 model CoachInvite {
-  token String @id @default(uuid())
+  token     String    @id @default(uuid())
   /// 自用標記，方便辨識這組碼發給了誰。
   label     String
   expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
   /// 使用後回填，方便追溯。
-  coachId String? @map("coach_id")
+  coachId   String?   @map("coach_id")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -138,11 +142,11 @@ model CoachInvite {
 
 /// 一次性邀請連結，綁定特定學員記錄（SPEC.md §3.2）。
 model Invite {
-  token    String    @id @default(uuid())
-  coachId  String    @map("coach_id")
-  memberId String    @map("member_id")
-  expiresAt DateTime @map("expires_at")
-  usedAt   DateTime? @map("used_at")
+  token     String    @id @default(uuid())
+  coachId   String    @map("coach_id")
+  memberId  String    @map("member_id")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -156,15 +160,15 @@ model Invite {
 
 /// 一堂具體的課。重複課程展開成實體（SPEC.md §3.4），以 seriesId 串聯。
 model Session {
-  id      String  @id @default(uuid())
-  coachId String  @map("coach_id")
+  id       String  @id @default(uuid())
+  coachId  String  @map("coach_id")
   /// 同一組重複課程共用。單次課程為 null。
   seriesId String? @map("series_id")
 
   startAt     DateTime @map("start_at")
   durationMin Int      @map("duration_min")
   /// 選填自由文字，連鎖健身房教練可能跨門店。
-  location String?
+  location    String?
 
   status SessionStatus @default(scheduled)
 
@@ -239,9 +243,16 @@ model Notification {
   sessionId String?  @map("session_id")
   session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
+  /// 這則推播該記在哪位教練頭上（SPEC.md §16 計費統計）。
+  /// 排入佇列時就寫死，不靠 sessionId 反推——sessionId 可能被 SetNull，
+  /// 一旦斷掉就永遠歸不了帳。null 代表舊資料回填不到，統計時歸「未歸屬」。
+  coachId String? @map("coach_id")
+  coach   Coach?  @relation(fields: [coachId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([status, sendAt])
   @@index([sessionId])
+  @@index([coachId, sentAt])
   @@map("notifications")
 }
