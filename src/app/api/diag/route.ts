@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -24,6 +25,10 @@ export async function GET(req: Request): Promise<Response> {
       APP_BASE_URL: process.env.APP_BASE_URL ?? null,
       NEXT_PUBLIC_LIFF_ID: process.env.NEXT_PUBLIC_LIFF_ID || null,
     },
+    admin: {
+      ADMIN_PASSWORD: describeSecret(process.env.ADMIN_PASSWORD),
+      ADMIN_SESSION_SECRET: describeSecret(process.env.ADMIN_SESSION_SECRET),
+    },
   };
 
   // 1) access token 是否有效 —— 無效的話 reply / push 全部會靜默失敗
@@ -47,6 +52,29 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   return Response.json(result, { status: 200 });
+}
+
+/**
+ * 管理密碼的診斷。不回傳任何一個字元——只回傳長度、指紋，以及最常見的
+ * 兩種貼錯：頭尾多了引號、頭尾多了空白或換行。
+ *
+ * 指紋比對法（在本機跑，跟這裡的 fingerprint 比）：
+ *   printf '%s' '你以為的密碼' | shasum -a 256 | cut -c1-12
+ */
+function describeSecret(v: string | undefined): Record<string, unknown> {
+  if (!v) return { status: "MISSING" };
+
+  return {
+    status: "set",
+    length: v.length,
+    fingerprint: createHash("sha256").update(v).digest("hex").slice(0, 12),
+    // Vercel 的介面存的是字面值，不像 dotenv 會幫你剝掉引號。
+    hasSurroundingQuotes:
+      (v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")),
+    hasEdgeWhitespace: v !== v.trim(),
+    // 整行貼進去了（值裡面含變數名）。
+    looksLikeFullLine: /^ADMIN_(PASSWORD|SESSION_SECRET)=/.test(v),
+  };
 }
 
 function describe(v: string | undefined): string {
