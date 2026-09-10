@@ -67,14 +67,20 @@ export default async function DashboardPage() {
           </span>
         </h2>
 
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-5">
           {BUCKETS.map((b) => (
             <Stat
               key={b}
               label={BUCKET_LABELS[b]}
               value={d.billed[b]}
               unit="則"
-              note={b === "month" ? "自然月，1 日重算" : undefined}
+              note={
+                b === "today"
+                  ? "進行中，到今晚午夜為止"
+                  : b === "month"
+                    ? "自然月，1 日重算"
+                    : undefined
+              }
               accent="amber"
             />
           ))}

@@ -21,16 +21,17 @@ export function taipeiMonthStart(now = new Date()): Date {
   return taipeiDateTime(`${fmt(now, "yyyy-MM")}-01`, "00:00");
 }
 
-export type Bucket = "yesterday" | "last7" | "month" | "total";
+export type Bucket = "today" | "yesterday" | "last7" | "month" | "total";
 
 export const BUCKET_LABELS: Record<Bucket, string> = {
+  today: "今天",
   yesterday: "昨天",
   last7: "過去 7 天",
   month: "本月",
   total: "總計",
 };
 
-export const BUCKETS: Bucket[] = ["yesterday", "last7", "month", "total"];
+export const BUCKETS: Bucket[] = ["today", "yesterday", "last7", "month", "total"];
 
 export type BucketRange = { gte?: Date; lt?: Date };
 
@@ -42,6 +43,8 @@ export function bucketRanges(now = new Date()): Record<Bucket, BucketRange> {
   const todayStart = taipeiMidnight(0, now);
 
   return {
+    // 今天還沒過完，這格會一路長到午夜。
+    today: { gte: todayStart },
     yesterday: { gte: taipeiMidnight(1, now), lt: todayStart },
     last7: { gte: taipeiMidnight(7, now), lt: todayStart },
     month: { gte: taipeiMonthStart(now) },
@@ -52,6 +55,7 @@ export function bucketRanges(now = new Date()): Record<Bucket, BucketRange> {
 export type BucketCounts = Record<Bucket, number>;
 
 export const ZERO_COUNTS: BucketCounts = {
+  today: 0,
   yesterday: 0,
   last7: 0,
   month: 0,
