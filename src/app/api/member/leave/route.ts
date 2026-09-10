@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireMember } from "@/lib/auth";
 import { applyApprovedLeave, hoursUntil } from "@/lib/leave";
+import { flushNotifications } from "@/lib/dispatch";
 import { enqueueCoachLeave } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 
@@ -82,6 +83,9 @@ export async function POST(req: Request): Promise<Response> {
 
     return applied;
   });
+
+  // 臨時請假時教練需要立刻知道，這是整個系統裡最不能延遲的一則。
+  flushNotifications();
 
   return Response.json({
     ok: true,

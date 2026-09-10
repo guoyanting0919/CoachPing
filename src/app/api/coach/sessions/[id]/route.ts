@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { requireCoach } from "@/lib/auth";
+import { flushNotifications } from "@/lib/dispatch";
 import {
   cancelPendingNotifications,
   enqueueSessionChange,
@@ -80,6 +81,7 @@ export async function PATCH(
       }
     });
 
+    flushNotifications();
     return Response.json({ ok: true, updated: 1 });
   }
 
@@ -120,6 +122,7 @@ export async function PATCH(
     await enqueueSessionChange(tx, moved, "rescheduled");
   });
 
+  flushNotifications();
   return Response.json({ ok: true, updated: future.length });
 }
 
@@ -147,6 +150,8 @@ export async function DELETE(
       await tx.session.update({ where: { id }, data: { status: "cancelled" } });
       await cancelPendingNotifications(tx, [id]);
     });
+
+    flushNotifications();
     return Response.json({ ok: true, cancelled: 1 });
   }
 
@@ -176,6 +181,7 @@ export async function DELETE(
     return ids.length;
   });
 
+  flushNotifications();
   return Response.json({ ok: true, cancelled });
 }
 

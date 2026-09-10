@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireCoach } from "@/lib/auth";
 import { applyApprovedLeave } from "@/lib/leave";
+import { flushNotifications } from "@/lib/dispatch";
 import { enqueueMemberChange } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 
@@ -60,6 +61,9 @@ export async function POST(
 
     return applied;
   });
+
+  // 學員正在等結果，不能讓他等到下一次 cron。交易已 commit，派送看得到那幾列。
+  flushNotifications();
 
   return Response.json({
     ok: true,

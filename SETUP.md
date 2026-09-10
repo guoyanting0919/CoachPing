@@ -181,8 +181,15 @@ LINE 的 webhook 和 LIFF 都要求 HTTPS 公開網址，本機 `localhost` 不�
 
 ## 8. 推播排程（第 5 項）
 
-推播不會自己送出——`/api/cron/dispatch` 必須由外部排程每分鐘呼叫一次。
-沒設定的話課程照排、提醒照排入佇列，但一則都不會發出去。
+推播不會自己送出——`/api/cron/dispatch` 必須由外部排程**每 30 分鐘**呼叫一次。
+沒設定的話課程照排、提醒照排入佇列，但課前提醒一則都不會發出去。
+
+> **為什麼是 30 分鐘不是 1 分鐘**：Neon 免費方案每月只有 100 CU-hours，而資料庫閒置
+> 5 分鐘才會自動休眠。每分鐘輪詢會讓它 24 小時不休眠，約 17 天就耗盡算力並被停用，
+> 屆時整個服務（LIFF、webhook、後台）會一起掛掉。
+>
+> 取消／改期／請假這類「使用者剛觸發」的通知**不受這個間隔影響**——那幾支 API 會在
+> 回應送出後直接派送一次（SPEC.md §5），延遲是 0。cron 只負責到點的課前提醒。
 
 Vercel Hobby 方案的內建 cron 每天只能跑一次，因此走外部服務。擇一：
 
@@ -190,13 +197,13 @@ Vercel Hobby 方案的內建 cron 每天只能跑一次，因此走外部服務�
 - [ ] 註冊後新增 cronjob
 - [ ] URL：`https://coachping.vercel.app/api/cron/dispatch`
 - [ ] Request method：**POST**
-- [ ] Schedule：**Every 1 minute**
+- [ ] Schedule：**Every 30 minutes**
 - [ ] Headers 加一列：`Authorization: Bearer <你的 CRON_SECRET>`
 
 **Upstash QStash**（免費額度足夠）
 - [ ] Console → Schedules → Create
 - [ ] Destination：同上網址，方法 POST
-- [ ] Cron：`* * * * *`
+- [ ] Cron：`*/30 * * * *`
 - [ ] Header：`Authorization: Bearer <你的 CRON_SECRET>`
 
 `CRON_SECRET` 在本機 `.env` 裡。設定完成後可手動驗證：

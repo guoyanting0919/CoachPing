@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireCoach } from "@/lib/auth";
+import { flushNotifications } from "@/lib/dispatch";
 import { enqueueSessionReminders } from "@/lib/notifications";
 import { prisma } from "@/lib/prisma";
 import {
@@ -157,6 +158,10 @@ export async function POST(req: Request): Promise<Response> {
 
     return enqueueSessionReminders(tx, ids);
   });
+
+  // 距上課已不足 reminderHours 的課，提醒的 sendAt 就是現在（見 notifications.ts）。
+  // 那種「今天排明天的課」的情境不該等下一次 cron。
+  flushNotifications();
 
   return Response.json({ created: startTimes.length, seriesId, reminders });
 }
