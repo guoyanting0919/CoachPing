@@ -89,8 +89,17 @@ export default function LiffClient() {
 
   const [state, setState] = useState<State>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
+  // 剛完成註冊時，要停在他剛取得的那個身分，而不是回到預設的教練模式。
+  // 沒有這個，教練完成學員註冊後畫面會跳回排課，跟當下綁上的學員選單對不起來。
+  const [landOn, setLandOn] = useState<"coach" | "member" | null>(null);
 
   const retry = useCallback(() => {
+    setState({ kind: "loading" });
+    setAttempt((n) => n + 1);
+  }, []);
+
+  const finishAs = useCallback((side: "coach" | "member") => {
+    setLandOn(side);
     setState({ kind: "loading" });
     setAttempt((n) => n + 1);
   }, []);
@@ -150,12 +159,47 @@ export default function LiffClient() {
 
   const { session, idToken } = state;
 
-  const { coach, member } = session;
+  const { coach, member, invite } = session;
+
+  // 邀請優先於身分。伺服器只會在「這張碼還能給他新東西」時回傳 invite，
+  // 所以走到這裡就代表該讓他完成註冊——即使他已經是教練或學員。
+  // 反過來（先看身分）會讓已註冊的人永遠走不到註冊表單，而表單只有這一個入口。
+  if (invite) {
+    if (!invite.valid) {
+      return (
+        <Screen>
+          <Title>此邀請連結已失效</Title>
+          <Hint>連結可能已被使用過或已過期。請向提供連結的人索取新的邀請連結。</Hint>
+        </Screen>
+      );
+    }
+
+    if (invite.kind === "coach") {
+      return (
+        <CoachRegisterForm
+          idToken={idToken}
+          inviteToken={inviteToken!}
+          defaultName={session.lineName ?? ""}
+          onDone={() => finishAs("coach")}
+        />
+      );
+    }
+
+    return (
+      <MemberRegisterForm
+        idToken={idToken}
+        inviteToken={inviteToken!}
+        coachName={invite.coachName}
+        suggestedName={invite.suggestedName || (session.lineName ?? "")}
+        onDone={() => finishAs("member")}
+      />
+    );
+  }
 
   // 雙重身分者兩套介面都進得去，由 Rich Menu 帶的 ?p= 決定要看哪一套；
   // 裸連結（沒帶參數）一律預設教練模式。單一身分者永遠只會落到自己那一套，
   // 參數對不上時各自的 App 會落到 default 分支，行為與過去相同。
-  if (member && (!coach || isMemberPage(page))) {
+  if (member && (!coach || landOn === "member" || isMemberPage(page))) {
     return <MemberApp idToken={idToken} memberName={member.displayName} page={page} />;
   }
 
@@ -163,44 +207,10 @@ export default function LiffClient() {
     return <CoachApp idToken={idToken} page={page} />;
   }
 
-  const invite = session.invite;
-
-  if (!invite) {
-    return (
-      <Screen>
-        <Title>需要邀請連結</Title>
-        <Hint>這個頁面要透過教練提供的專屬連結才能開啟。請向你的教練索取邀請連結。</Hint>
-      </Screen>
-    );
-  }
-
-  if (!invite.valid) {
-    return (
-      <Screen>
-        <Title>此邀請連結已失效</Title>
-        <Hint>連結可能已被使用過或已過期。請向提供連結的人索取新的邀請連結。</Hint>
-      </Screen>
-    );
-  }
-
-  if (invite.kind === "coach") {
-    return (
-      <CoachRegisterForm
-        idToken={idToken}
-        inviteToken={inviteToken!}
-        defaultName={session.lineName ?? ""}
-        onDone={retry}
-      />
-    );
-  }
-
   return (
-    <MemberRegisterForm
-      idToken={idToken}
-      inviteToken={inviteToken!}
-      coachName={invite.coachName}
-      suggestedName={invite.suggestedName || (session.lineName ?? "")}
-      onDone={retry}
-    />
+    <Screen>
+      <Title>需要邀請連結</Title>
+      <Hint>這個頁面要透過教練提供的專屬連結才能開啟。請向你的教練索取邀請連結。</Hint>
+    </Screen>
   );
 }
