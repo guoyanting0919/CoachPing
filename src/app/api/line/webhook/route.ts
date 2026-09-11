@@ -1,5 +1,7 @@
 import type { webhook } from "@line/bot-sdk";
-import { bindRichMenu, replyText, resolveRole, verifySignature } from "@/lib/line";
+import type { Identities } from "@/lib/identity";
+import { isDualRole, primaryRole, resolveIdentities } from "@/lib/identity";
+import { bindRichMenu, currentMenuRole, replyText, verifySignature } from "@/lib/line";
 import { prisma } from "@/lib/prisma";
 import { buildCoachTodayText, buildMemberScheduleText } from "@/lib/today-schedule";
 
@@ -72,7 +74,25 @@ async function handlePostback(
   replyToken: string,
   data: string,
 ): Promise<void> {
-  const action = new URLSearchParams(data).get("action");
+  const params = new URLSearchParams(data);
+  const action = params.get("action");
+
+  // Rich Menu 的切換鍵。選單已經在客戶端換好了（richmenuswitch），這裡只負責把
+  // 伺服器端的綁定同步過去，讓 currentMenuRole 查得到他當下在哪個模式（ADR-0001）。
+  // 刻意不回覆任何訊息：畫面上已經看得出來切換了，再回一句只是洗版。
+  if (action === "switch") {
+    const identities = await resolveIdentities(lineUserId);
+
+    // 身分可能在兩次切換之間改變（例如學員記錄被整筆刪除）。不再是雙重身分就
+    // 綁回他真正該有的那張，而不是硬塞一個空的模式給他。
+    if (!isDualRole(identities)) {
+      await bindRichMenu(lineUserId, primaryRole(identities));
+      return;
+    }
+
+    await bindRichMenu(lineUserId, params.get("to") === "member" ? "member_dual" : "coach_dual");
+    return;
+  }
 
   if (action === "today") {
     const coach = await prisma.coach.findUnique({
@@ -110,7 +130,7 @@ async function handleFollow(lineUserId: string, replyToken: string): Promise<voi
     data: { lineBlocked: false },
   });
 
-  const role = await resolveRole(lineUserId);
+  const role = primaryRole(await resolveIdentities(lineUserId));
   await bindRichMenu(lineUserId, role);
 
   const text =
@@ -137,39 +157,53 @@ async function handleTextMessage(
   replyToken: string,
   message: string,
 ): Promise<void> {
-  const role = await resolveRole(lineUserId);
+  const identities = await resolveIdentities(lineUserId);
+  const side = await currentSide(lineUserId, identities);
 
   const trimmed = message.trim();
 
-  if (role === "coach" && TODAY_KEYWORDS.includes(trimmed)) {
-    const coach = await prisma.coach.findUnique({
-      where: { lineUserId },
-      select: { id: true },
-    });
-    if (coach) {
-      await replyText(replyToken, await buildCoachTodayText(coach.id));
+  // 選單按鈕本來就沒有歧義（兩張選單送出不同的 action），只有直接打字才需要判斷
+  // 這個人當下站在哪一邊。
+  if (TODAY_KEYWORDS.includes(trimmed)) {
+    if (side === "coach" && identities.coach) {
+      await replyText(replyToken, await buildCoachTodayText(identities.coach.id));
       return;
     }
-  }
 
-  if (role === "member" && TODAY_KEYWORDS.includes(trimmed)) {
-    const member = await prisma.member.findUnique({
-      where: { lineUserId },
-      select: { id: true },
-    });
-    if (member) {
-      await replyText(replyToken, await buildMemberScheduleText(member.id));
+    if (side === "member" && identities.member) {
+      await replyText(replyToken, await buildMemberScheduleText(identities.member.id));
       return;
     }
   }
 
   // 一律使用 reply（免費），不要用 push 回應學員訊息。
   const text =
-    role === "coach"
+    side === "coach"
       ? "請點下方選單操作排課、查看學員或處理請假。也可以直接輸入「今日課表」。"
-      : role === "member"
+      : side === "member"
         ? "輸入「課表」可查詢，請假請點下方選單。想找教練聊聊請點「聯絡教練」。"
         : "請先點下方選單完成註冊。";
 
   await replyText(replyToken, text);
+}
+
+/**
+ * 這個人當下該被視為教練還是學員。
+ *
+ * 單一身分者就是他唯一的身分，不必多問。雙重身分者要看他當下在哪個模式——那個狀態
+ * 存在 LINE 而非資料庫，所以向 LINE 查他目前綁著哪張選單（ADR-0001）。
+ *
+ * 查不到時退回教練模式，與 primaryRole 給雙重身分者的預設一致：兩處保持同一個答案，
+ * 使用者才不會因為 LINE 暫時不可用就突然看到另一邊的資料。
+ */
+async function currentSide(
+  lineUserId: string,
+  identities: Identities,
+): Promise<"coach" | "member" | "none"> {
+  if (!isDualRole(identities)) {
+    if (identities.coach) return "coach";
+    return identities.member ? "member" : "none";
+  }
+
+  return (await currentMenuRole(lineUserId)) === "member_dual" ? "member" : "coach";
 }

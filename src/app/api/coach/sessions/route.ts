@@ -125,10 +125,17 @@ export async function POST(req: Request): Promise<Response> {
   });
 
   if (!body.force) {
-    const conflicts = await findConflicts(coach.id, startTimes, durationMin);
-    if (conflicts.length) {
+    const [conflicts, selfConflicts] = await Promise.all([
+      findConflicts(coach.id, startTimes, durationMin),
+      findSelfStudyConflicts(coach.lineUserId, startTimes, durationMin),
+    ]);
+    if (conflicts.length || selfConflicts.length) {
       return Response.json(
-        { error: "conflicts", conflicts: conflicts.map((d) => d.toISOString()) },
+        {
+          error: "conflicts",
+          conflicts: conflicts.map((d) => d.toISOString()),
+          selfConflicts: selfConflicts.map((d) => d.toISOString()),
+        },
         { status: 409 },
       );
     }
@@ -199,6 +206,43 @@ async function findConflicts(
         gte: new Date(first.getTime() - 24 * 60 * 60 * 1000),
         lte: new Date(last.getTime() + 24 * 60 * 60 * 1000),
       },
+    },
+    select: { startAt: true, durationMin: true },
+  });
+
+  return startTimes.filter((t) =>
+    existing.some((e) => overlaps(t, durationMin, e.startAt, e.durationMin)),
+  );
+}
+
+/**
+ * 回傳與「教練自己身為學員要上的課」撞期的開始時刻。
+ *
+ * 只有雙重身分的教練會撞到這種課。一般教練的 line_user_id 不存在於 members，
+ * 這個查詢直接回空——所以不必先花一次查詢問「你是不是也是學員」。
+ *
+ * 刻意只回時間、不回那堂課是誰開的：隱私硬規則規定教練端不得得知學員的其他教練
+ * （SPEC.md §4），反過來也一樣。
+ */
+async function findSelfStudyConflicts(
+  coachLineUserId: string,
+  startTimes: Date[],
+  durationMin: number,
+): Promise<Date[]> {
+  if (!startTimes.length) return [];
+
+  const first = startTimes[0];
+  const last = startTimes[startTimes.length - 1];
+
+  const existing = await prisma.session.findMany({
+    where: {
+      status: "scheduled",
+      startAt: {
+        // 與 findConflicts 同樣前後各放寬一天，涵蓋跨日的邊界情況。
+        gte: new Date(first.getTime() - 24 * 60 * 60 * 1000),
+        lte: new Date(last.getTime() + 24 * 60 * 60 * 1000),
+      },
+      participants: { some: { member: { lineUserId: coachLineUserId } } },
     },
     select: { startAt: true, durationMin: true },
   });

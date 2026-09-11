@@ -12,7 +12,8 @@
  */
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import { prisma } from "../src/lib/prisma";
-import { bindRichMenu, resolveRole } from "../src/lib/line";
+import { primaryRole, resolveIdentities } from "../src/lib/identity";
+import { bindRichMenu } from "../src/lib/line";
 
 const STASH = ".dev-role-stash.json";
 
@@ -58,7 +59,7 @@ async function detach() {
 
   // 解除教練身分後，這個帳號可能仍是某位教練的學員（測試學員流程時的常態），
   // 所以要重新判定角色而非一律綁「未註冊」選單。
-  const role = await resolveRole(coach.lineUserId);
+  const role = primaryRole(await resolveIdentities(coach.lineUserId));
   try {
     await bindRichMenu(coach.lineUserId, role);
   } catch (err) {
@@ -86,7 +87,7 @@ async function restore() {
   // coaches 與 members 的 line_user_id 唯一性各自獨立，同一個 LINE 帳號
   // 可以同時存在於兩張表。測試期間建立的學員記錄刻意保留，
   // 這樣教練端「我的學員」會正確顯示為已連結，可以驗證整條路徑。
-  // 角色判定以教練優先（見 /api/liff/session），不會互相干擾。
+  // 兩個身分併存就是雙重身分（見 CONTEXT.md），不會互相干擾。
   const asMember = await prisma.member.findUnique({
     where: { lineUserId },
     select: { displayName: true },

@@ -24,7 +24,13 @@
 | 教練 | LINE userId | 專屬邀請連結（前期由開發者手動產生） |
 | 學員 | LINE userId | 教練產生的一次性邀請連結 |
 
-一個 LINE 使用者理論上可同時是教練與學員，但 MVP 不處理此情境（以先註冊的角色為準）。
+一個 LINE 使用者可同時是教練與學員——教練 X 同時是**另一位**教練 Y 的學員。這稱為**雙重身分**，
+系統予以支援。不支援「教練當自己的學員」。
+
+`coaches` 與 `members` 的 `line_user_id` 唯一性各自獨立，兩張表本來就允許同一人各存一筆，
+因此雙重身分**不需要任何資料模型改動**。兩套介面各自完整、互不混合，由 Rich Menu 決定當下
+在哪一邊；「目前是哪個模式」的狀態存在 LINE 而非資料庫。理由與被否決的替代方案見
+`docs/adr/0001-dual-role-via-rich-menu-mode.md`。
 
 ---
 
@@ -279,14 +285,25 @@ LINE Provider（單一）
 
 **關鍵前提**：LIFF channel 與 Messaging API channel 必須位於**同一個 Provider**，否則取得的 userId 不一致，推播會失敗。此為不可逆的初始設定，建錯要重來。
 
-### Rich Menu（三個，依角色個別綁定）
+### Rich Menu（五個，依身分個別綁定）
 
 | 選單 | 對象 | 按鈕 |
 |---|---|---|
-| 未註冊 | 剛加好友尚未填資料 | 單一大按鈕「完成註冊」 |
-| 教練版 | `coaches` 存在 | 今日課表｜我的課表｜排課／我的學員｜請假通知｜設定 |
-| 學員版 | `members` 已連結 | 我的課表（postback）｜請假／聯絡教練｜個人設定 |
+| `unregistered` | 剛加好友尚未填資料 | 單一大按鈕「完成註冊」 |
+| `coach` | 只是教練 | 今日課表｜我的課表｜排課／我的學員｜請假通知｜設定 |
+| `member` | 只是學員 | 我的課表（postback）｜請假／聯絡教練｜個人設定 |
+| `coach_dual` | 雙重身分，教練模式 | 同 `coach`，但下列改四格，多一個「切換身分」 |
+| `member_dual` | 雙重身分，學員模式 | 同 `member`，但下列改三格，多一個「切換身分」 |
 
+- **雙重身分者才拿 `*_dual`**。一般教練與一般學員的版面一格都沒變——不讓絕大多數
+  使用者為一個罕見功能付版面代價。`coach_dual` 的上列三個最高頻按鈕與 `coach` 位置相同，
+  切換時肌肉記憶不會錯位
+- **切換走 LINE 原生的 `richmenuswitch` + rich menu alias**（`coach-mode`／`member-mode`）：
+  客戶端瞬間換選單，同時回送 postback，webhook 收到後呼叫 `linkRichMenuIdToUser` 把綁定
+  同步過去。因此「目前在哪個模式」直接向 LINE 查（`getRichMenuIdOfUser`），**不存在資料庫**。
+  這點違反直覺，動它之前請先讀 `docs/adr/0001-dual-role-via-rich-menu-mode.md`
+- **alias 必須在選單建立之後才能建**；反之選單裡的 `richmenuswitch` 引用尚不存在的 alias
+  是允許的。`scripts/richmenu.ts` 的順序依此，不要調換
 - 註冊完成時以 `POST /v2/bot/user/{userId}/richmenu` 個別綁定
 - **查課表一律走 postback，不開 LIFF**：教練的「今日課表」與學員的「我的課表」
   都由 webhook 直接回一則文字訊息。查看課表是最高頻的動作，不該等網頁載入，
@@ -430,6 +447,7 @@ Vercel Hobby 方案的內建 cron 僅支援每日一次，故排程走外部服�
 | 推播歸屬 | `notifications.coach_id` 落地欄位 | 「這則推播是誰造成的」是發生當下才知道的事實，晚一天加就永久少一天資料；靠 `session_id` 反推會在 SetNull 後斷掉 |
 | 內容失效的推播 | 新增 `skipped` 狀態 | 原本標記為 `sent`，會讓計費用量虛高；LINE 只對真的送出去的訊息收費 |
 | 後台身分驗證 | 單一密碼 + HMAC cookie | 只有開發者一個使用者。LINE Login 要另設 web callback，成本與收益不成比例 |
+| 雙重身分 | 兩張表併存，模式狀態存在 LINE | `coaches`／`members` 的 `line_user_id` 唯一性本就各自獨立，零 migration；抽 `Person` 表要動既有資料，換不到 MVP 階段的好處。見 ADR-0001 |
 
 ---
 

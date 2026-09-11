@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveIdentities } from "@/lib/identity";
 import { verifyIdToken } from "@/lib/liff-auth";
 import { bindRichMenu } from "@/lib/line";
 import { prisma } from "@/lib/prisma";
@@ -124,8 +125,14 @@ export async function POST(req: Request): Promise<Response> {
     return existing.id;
   });
 
+  // 已經是教練的人剛完成學員註冊，就是雙重身分。必須綁 member_dual 而非 member：
+  // 綁 member 會把他的教練選單當場蓋掉，而且沒有任何地方會再綁回來。
+  //
+  // 停在學員模式是刻意的——他剛按完「我要成為這位教練的學員」，下一步多半是
+  // 看自己被排了哪些課；要切回教練模式按一下切換鍵就好。
+  const { coach: alsoCoach } = await resolveIdentities(verified.userId);
   try {
-    await bindRichMenu(verified.userId, "member");
+    await bindRichMenu(verified.userId, alsoCoach ? "member_dual" : "member");
   } catch (err) {
     console.error("[member-register] Rich Menu 綁定失敗", err);
   }

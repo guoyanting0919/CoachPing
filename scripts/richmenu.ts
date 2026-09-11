@@ -20,7 +20,9 @@ const DATA_API = "https://api-data.line.me/v2/bot";
  */
 type Cell =
   | { label: string; icon: IconName; page: string }
-  | { label: string; icon: IconName; postback: string };
+  | { label: string; icon: IconName; postback: string }
+  /** 切換到另一張選單。由 LINE 客戶端直接完成，同時回送 postback 供伺服器同步綁定。 */
+  | { label: string; icon: IconName; switchTo: string; data: string };
 
 /**
  * 自繪線條圖示，皆以 100x100 的 viewBox 定義。
@@ -40,6 +42,8 @@ const ICONS = {
   cross: `<rect x="14" y="26" width="72" height="60" rx="9"/><path d="M14 46 H86"/><path d="M39 60 l22 20 M61 60 l-22 20"/>`,
   pencil: `<path d="M27 73 l-7 14 14-7 44-44 -7-7 z"/><path d="M64 25 l7 7"/><path d="M18 92 H86"/>`,
   list: `<path d="M38 28 H86 M38 50 H86 M38 72 H86"/><circle cx="20" cy="28" r="4"/><circle cx="20" cy="50" r="4"/><circle cx="20" cy="72" r="4"/>`,
+  // 兩支反向箭頭。切換身分不是「功能」而是「換一套功能」，用交換語彙而非齒輪或人像。
+  swap: `<path d="M18 38 H72"/><path d="M58 24 L72 38 L58 52"/><path d="M82 62 H28"/><path d="M42 48 L28 62 L42 76"/>`,
 } as const;
 
 type IconName = keyof typeof ICONS;
@@ -62,7 +66,35 @@ const COLS_2 = [
   { x: 0, w: 1250 },
   { x: 1250, w: 1250 },
 ];
+/** 雙重身分版的教練選單要塞第七格。只有那張選單用四欄，一般教練的版面不受影響。 */
+const COLS_4 = [
+  { x: 0, w: 625 },
+  { x: 625, w: 625 },
+  { x: 1250, w: 625 },
+  { x: 1875, w: 625 },
+];
 const ROW_H = 843;
+
+/** 一列有幾格就用哪組欄位。總寬必須剛好 2500。 */
+const COLS: Record<number, { x: number; w: number }[]> = {
+  1: [{ x: 0, w: 2500 }],
+  2: COLS_2,
+  3: COLS_3,
+  4: COLS_4,
+};
+
+/**
+ * Rich Menu alias：richmenuswitch 動作指向的是 alias 而非選單 ID，
+ * 這樣重建選單（ID 會變）時不必改動任何選單定義，只要把 alias 重新指過去。
+ */
+const COACH_ALIAS = "coach-mode";
+const MEMBER_ALIAS = "member-mode";
+
+/** alias 指向哪一張選單。 */
+const ALIASES: Record<string, string> = {
+  [COACH_ALIAS]: "coach_dual",
+  [MEMBER_ALIAS]: "member_dual",
+};
 
 const MENUS: Record<string, { chatBarText: string; rows: Cell[][] }> = {
   unregistered: {
@@ -104,6 +136,41 @@ const MENUS: Record<string, { chatBarText: string; rows: Cell[][] }> = {
       ],
     ],
   },
+
+  // 以下兩張只綁給雙重身分者（見 CONTEXT.md、ADR-0001）。
+  // 一般教練與一般學員繼續拿上面兩張，不為一個罕見功能付版面代價。
+  coach_dual: {
+    chatBarText: "教練選單",
+    rows: [
+      // 上列三個最高頻的按鈕與一般教練版位置完全相同，切換時肌肉記憶不會錯位。
+      [
+        { label: "今日課表", icon: "list", postback: "today" },
+        { label: "我的課表", icon: "calendar", page: "today" },
+        { label: "排課", icon: "plus", page: "schedule" },
+      ],
+      // 第七格塞在下列，該列改為四格。
+      [
+        { label: "我的學員", icon: "people", page: "members" },
+        { label: "請假通知", icon: "bell", page: "leaves" },
+        { label: "設定", icon: "sliders", page: "settings" },
+        { label: "切換身分", icon: "swap", switchTo: MEMBER_ALIAS, data: "action=switch&to=member" },
+      ],
+    ],
+  },
+  member_dual: {
+    chatBarText: "學員選單",
+    rows: [
+      [
+        { label: "我的課表", icon: "list", postback: "my_sessions" },
+        { label: "請假", icon: "cross", page: "leave" },
+      ],
+      [
+        { label: "聯絡教練", icon: "chat", page: "contact" },
+        { label: "個人設定", icon: "person", page: "profile" },
+        { label: "切換身分", icon: "swap", switchTo: COACH_ALIAS, data: "action=switch&to=coach" },
+      ],
+    ],
+  },
 };
 
 function buildSvg(rows: Cell[][]): string {
@@ -113,7 +180,7 @@ function buildSvg(rows: Cell[][]): string {
   ];
 
   rows.forEach((row, r) => {
-    const cols = row.length === 3 ? COLS_3 : row.length === 2 ? COLS_2 : [{ x: 0, w: 2500 }];
+    const cols = COLS[row.length];
     const y = r * ROW_H;
 
     row.forEach((cell, c) => {
@@ -158,9 +225,8 @@ async function dryRun(outDir: string) {
  * 重新綁定所有使用者的選單。
  *
  * 刪除舊選單會讓已綁定的使用者失去選單，因此重建後必須綁回去。
- * 同一個 LINE 帳號可能同時是教練與學員（coaches 與 members 的
- * line_user_id 唯一性各自獨立），此時一律以教練為準——與
- * /api/liff/session 的角色判定順序一致，否則教練會被綁成學員選單。
+ * 同時是教練與學員的人（雙重身分）綁 coach_dual：教練是主身分，與 primaryRole
+ * 的順序一致，他自己按切換鍵就能換到學員模式。
  */
 async function rebindUsers(ids: Record<string, string>) {
   const { prisma } = await import("../src/lib/prisma");
@@ -174,23 +240,33 @@ async function rebindUsers(ids: Record<string, string>) {
       where: { lineUserId: { not: null }, lineBlocked: false },
       select: { lineUserId: true },
     });
+    const memberIds = new Set(
+      members.map((m) => m.lineUserId).filter((id): id is string => id !== null),
+    );
 
+    let dualCount = 0;
     for (const lineUserId of coachIds) {
-      await lineFetch(`${API}/user/${lineUserId}/richmenu/${ids.coach}`, {
+      const dual = memberIds.has(lineUserId);
+      if (dual) dualCount++;
+      const menuId = dual ? ids.coach_dual : ids.coach;
+      await lineFetch(`${API}/user/${lineUserId}/richmenu/${menuId}`, {
         method: "POST",
       }).catch((e) => console.warn(`  教練 ${lineUserId} 綁定失敗:`, e.message));
     }
 
     let memberCount = 0;
-    for (const m of members) {
-      if (!m.lineUserId || coachIds.has(m.lineUserId)) continue;
-      await lineFetch(`${API}/user/${m.lineUserId}/richmenu/${ids.member}`, {
+    for (const lineUserId of memberIds) {
+      // 雙重身分者已在上面綁過 coach_dual，不要再蓋成學員選單。
+      if (coachIds.has(lineUserId)) continue;
+      await lineFetch(`${API}/user/${lineUserId}/richmenu/${ids.member}`, {
         method: "POST",
-      }).catch((e) => console.warn(`  學員 ${m.lineUserId} 綁定失敗:`, e.message));
+      }).catch((e) => console.warn(`  學員 ${lineUserId} 綁定失敗:`, e.message));
       memberCount++;
     }
 
-    console.log(`✓ 已重新綁定 ${coachIds.size} 位教練、${memberCount} 位學員`);
+    console.log(
+      `✓ 已重新綁定 ${coachIds.size} 位教練（其中 ${dualCount} 位雙重身分）、${memberCount} 位學員`,
+    );
   } finally {
     await prisma.$disconnect();
   }
@@ -235,7 +311,7 @@ async function main() {
     const height = menu.rows.length * ROW_H;
 
     const areas = menu.rows.flatMap((row, r) => {
-      const cols = row.length === 3 ? COLS_3 : row.length === 2 ? COLS_2 : [{ x: 0, w: 2500 }];
+      const cols = COLS[row.length];
       return row.map((cell, c) => ({
         bounds: { x: cols[c].x, y: r * ROW_H, width: cols[c].w, height: ROW_H },
         action:
@@ -247,11 +323,18 @@ async function main() {
                 // 讓聊天室留下「教練問了什麼」的紀錄，回覆才不會沒頭沒尾。
                 displayText: cell.label,
               }
-            : {
-                type: "uri" as const,
-                label: cell.label,
-                uri: `https://liff.line.me/${LIFF_ID}?p=${cell.page}`,
-              },
+            : "switchTo" in cell
+              ? {
+                  // 刻意不設 displayText：切換是介面操作，不該在聊天室留下一句發言。
+                  type: "richmenuswitch" as const,
+                  richMenuAliasId: cell.switchTo,
+                  data: cell.data,
+                }
+              : {
+                  type: "uri" as const,
+                  label: cell.label,
+                  uri: `https://liff.line.me/${LIFF_ID}?p=${cell.page}`,
+                },
       }));
     });
 
@@ -278,6 +361,19 @@ async function main() {
 
     ids[key] = created.richMenuId;
     console.log(`✓ ${key}: ${created.richMenuId}`);
+  }
+
+  // alias 必須等選單建立後才能指過去。反過來不必擔心：選單裡的 richmenuswitch
+  // 動作引用 alias ID 時，LINE 不要求該 alias 當下已存在。
+  for (const [aliasId, menuKey] of Object.entries(ALIASES)) {
+    // 舊 alias 可能還指著剛被刪掉的選單。先刪再建，否則會撞到重複的 alias ID。
+    await lineFetch(`${API}/richmenu/alias/${aliasId}`, { method: "DELETE" }).catch(() => {});
+    await lineFetch(`${API}/richmenu/alias`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ richMenuAliasId: aliasId, richMenuId: ids[menuKey] }),
+    });
+    console.log(`✓ alias ${aliasId} → ${menuKey}`);
   }
 
   // 未註冊者尚未觸發任何綁定邏輯，設為預設選單讓他們一加好友就看得到。

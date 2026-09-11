@@ -1,6 +1,5 @@
 import { messagingApi, validateSignature } from "@line/bot-sdk";
 import { env } from "./env";
-import { prisma } from "./prisma";
 
 let client: messagingApi.MessagingApiClient | undefined;
 
@@ -27,31 +26,32 @@ export async function replyText(replyToken: string, text: string): Promise<void>
   });
 }
 
-export type Role = "coach" | "member" | "none";
+/**
+ * Rich Menu 對應的角色。
+ *
+ * 「這個 LINE 使用者有哪些身分」不在這裡判斷——那是領域問題，見 lib/identity.ts。
+ * 本模組只管 LINE 平台這一側：拿到一個角色，綁上對應的選單。
+ */
+export type Role = "coach" | "member" | "none" | "coach_dual" | "member_dual";
 
-/** 依 LINE userId 判斷角色。教練優先（MVP 不處理同一人身兼兩角）。 */
-export async function resolveRole(lineUserId: string): Promise<Role> {
-  const coach = await prisma.coach.findUnique({
-    where: { lineUserId },
-    select: { id: true },
-  });
-  if (coach) return "coach";
-
-  const member = await prisma.member.findUnique({
-    where: { lineUserId },
-    select: { id: true },
-  });
-  if (member) return "member";
-
-  return "none";
-}
-
-/** Rich Menu 名稱，與 scripts/richmenu.ts 建立時使用的 name 一致。 */
+/**
+ * Rich Menu 名稱，與 scripts/richmenu.ts 建立時使用的 name 一致。
+ *
+ * `*_dual` 兩張只綁給雙重身分者，選單上多一個切換鍵。一般教練與一般學員
+ * 繼續拿原本的版面，不為一個罕見功能付版面代價（ADR-0001）。
+ */
 const MENU_NAME: Record<Role, string> = {
   coach: "coach",
   member: "member",
   none: "unregistered",
+  coach_dual: "coach_dual",
+  member_dual: "member_dual",
 };
+
+/** MENU_NAME 的反向查表，供 currentMenuRole 由選單名稱回推角色。 */
+const ROLE_BY_MENU_NAME = new Map(
+  (Object.keys(MENU_NAME) as Role[]).map((role) => [MENU_NAME[role], role]),
+);
 
 // Rich Menu 重建後 ID 會變。以名稱向 LINE 查詢而非寫在環境變數裡，
 // 就不必每次改選單都同步更新環境變數（漏更新會讓新註冊的人拿不到選單）。
@@ -71,6 +71,28 @@ async function richMenuIds(): Promise<Record<string, string>> {
 /** 供測試或重建後清除快取。 */
 export function clearRichMenuCache(): void {
   menuIdCache = undefined;
+}
+
+/**
+ * 這個使用者目前綁的是哪張選單，也就是他當下在哪個模式。
+ *
+ * 「目前模式」的權威答案存在 LINE 而非資料庫（ADR-0001）：切換走客戶端的
+ * richmenuswitch，webhook 收到回送的 postback 時把綁定同步過去，這裡就查得到。
+ *
+ * 查不到時回 null——沒綁過選單、選單剛重建導致快取過期、或 LINE 暫時不可用，
+ * 都走這條。呼叫端必須自己決定退路，不要把 null 當成某個特定模式。
+ */
+export async function currentMenuRole(lineUserId: string): Promise<Role | null> {
+  try {
+    const { richMenuId } = await lineClient().getRichMenuIdOfUser(lineUserId);
+    const ids = await richMenuIds();
+    const name = Object.keys(ids).find((n) => ids[n] === richMenuId);
+    return name ? (ROLE_BY_MENU_NAME.get(name) ?? null) : null;
+  } catch (err) {
+    // 未綁定任何選單時 LINE 回 404，這是正常情況，不值得吵。
+    console.warn("[line] 查詢目前選單失敗", (err as Error).message);
+    return null;
+  }
 }
 
 /** 依角色綁定對應的 Rich Menu（SPEC.md §7）。 */

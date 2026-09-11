@@ -6,19 +6,22 @@ import CoachApp from "./coach/coach-app";
 import CoachRegisterForm from "./coach-register-form";
 import MemberApp from "./member/member-app";
 import MemberRegisterForm from "./member/member-register-form";
+import { isMemberPage } from "@/lib/liff-pages";
 import { Button, Centered, ErrorBox, Hint, Screen, Title } from "./ui";
 
-type SessionResult =
-  | { role: "coach"; coach: { id: string; name: string }; lineName?: string }
-  | { role: "member"; member: { id: string; displayName: string }; lineName?: string }
-  | {
-      role: "none";
-      lineName?: string;
-      invite:
-        | { kind: "coach"; valid: boolean; label: string }
-        | { kind: "member"; valid: boolean; coachName: string; suggestedName: string }
-        | null;
-    };
+/**
+ * 身分是集合而非單選：同一人可能同時是教練與學員（雙重身分）。
+ * 兩者皆為 null 時才需要看 invite，決定顯示哪張註冊表單。
+ */
+type SessionResult = {
+  coach: { id: string; name: string } | null;
+  member: { id: string; displayName: string } | null;
+  lineName?: string;
+  invite:
+    | { kind: "coach"; valid: boolean; label: string }
+    | { kind: "member"; valid: boolean; coachName: string; suggestedName: string }
+    | null;
+};
 
 type State =
   | { kind: "loading" }
@@ -147,18 +150,17 @@ export default function LiffClient() {
 
   const { session, idToken } = state;
 
-  if (session.role === "coach") {
-    return <CoachApp idToken={idToken} page={page} />;
+  const { coach, member } = session;
+
+  // 雙重身分者兩套介面都進得去，由 Rich Menu 帶的 ?p= 決定要看哪一套；
+  // 裸連結（沒帶參數）一律預設教練模式。單一身分者永遠只會落到自己那一套，
+  // 參數對不上時各自的 App 會落到 default 分支，行為與過去相同。
+  if (member && (!coach || isMemberPage(page))) {
+    return <MemberApp idToken={idToken} memberName={member.displayName} page={page} />;
   }
 
-  if (session.role === "member") {
-    return (
-      <MemberApp
-        idToken={idToken}
-        memberName={session.member.displayName}
-        page={page}
-      />
-    );
+  if (coach) {
+    return <CoachApp idToken={idToken} page={page} />;
   }
 
   const invite = session.invite;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { primaryRole, resolveIdentities } from "@/lib/identity";
 import { bindRichMenu } from "@/lib/line";
 import { normalizeOaUrl, verifyIdToken } from "@/lib/liff-auth";
 import { prisma } from "@/lib/prisma";
@@ -37,7 +38,7 @@ export async function POST(req: Request): Promise<Response> {
     select: { id: true },
   });
   if (existing) {
-    await bindRichMenu(verified.userId, "coach");
+    await bindRichMenu(verified.userId, primaryRole(await resolveIdentities(verified.userId)));
     return Response.json({ ok: true, coachId: existing.id, alreadyRegistered: true });
   }
 
@@ -78,8 +79,9 @@ export async function POST(req: Request): Promise<Response> {
   });
 
   // Rich Menu 綁定失敗不該讓註冊失敗——資料已經建好，選單可事後補綁。
+  // 這個人可能早就是別的教練的學員，那 primaryRole 會給出 coach_dual。
   try {
-    await bindRichMenu(verified.userId, "coach");
+    await bindRichMenu(verified.userId, primaryRole(await resolveIdentities(verified.userId)));
   } catch (err) {
     console.error("[register] Rich Menu 綁定失敗", err);
   }

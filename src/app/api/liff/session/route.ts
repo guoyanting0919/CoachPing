@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveIdentities } from "@/lib/identity";
 import { verifyIdToken } from "@/lib/liff-auth";
 import { prisma } from "@/lib/prisma";
 
@@ -14,6 +15,9 @@ const bodySchema = z.object({
 /**
  * LIFF 開啟時的第一支 API：告訴前端「你是誰、該看什麼畫面」。
  * 身分一律由 ID token 決定，不接受前端自報 userId。
+ *
+ * 回傳 coach 與 member 兩個欄位而非單一角色：同一人可能兩者皆是（雙重身分），
+ * 由前端依 `?p=` 決定渲染哪一套介面。邀請碼只在兩個身分都沒有時才需要查。
  */
 export async function POST(req: Request): Promise<Response> {
   const parsed = bodySchema.safeParse(await req.json().catch(() => null));
@@ -26,22 +30,10 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: "invalid_id_token" }, { status: 401 });
   }
 
-  const [coach, member] = await Promise.all([
-    prisma.coach.findUnique({
-      where: { lineUserId: verified.userId },
-      select: { id: true, name: true },
-    }),
-    prisma.member.findUnique({
-      where: { lineUserId: verified.userId },
-      select: { id: true, displayName: true },
-    }),
-  ]);
+  const { coach, member } = await resolveIdentities(verified.userId);
 
-  if (coach) {
-    return Response.json({ role: "coach", coach, lineName: verified.displayName });
-  }
-  if (member) {
-    return Response.json({ role: "member", member, lineName: verified.displayName });
+  if (coach || member) {
+    return Response.json({ coach, member, invite: null, lineName: verified.displayName });
   }
 
   // 尚未註冊：依邀請碼判斷要引導到哪張表單。
@@ -53,7 +45,8 @@ export async function POST(req: Request): Promise<Response> {
     });
     if (coachInvite) {
       return Response.json({
-        role: "none",
+        coach: null,
+        member: null,
         invite: {
           kind: "coach",
           valid: !coachInvite.usedAt && coachInvite.expiresAt > new Date(),
@@ -87,7 +80,8 @@ export async function POST(req: Request): Promise<Response> {
       });
 
       return Response.json({
-        role: "none",
+        coach: null,
+        member: null,
         invite: {
           kind: "member",
           valid: !memberInvite.usedAt && memberInvite.expiresAt > new Date(),
@@ -99,5 +93,5 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  return Response.json({ role: "none", invite: null, lineName: verified.displayName });
+  return Response.json({ coach: null, member: null, invite: null, lineName: verified.displayName });
 }

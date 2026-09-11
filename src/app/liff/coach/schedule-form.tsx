@@ -45,7 +45,12 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [conflicts, setConflicts] = useState<string[] | null>(null);
+  // 兩類撞期分開：teaching 是自己已經排了課的時段，selfStudy 是自己身為學員
+  // 要去上課的時段（只有雙重身分的教練會有）。兩者都只警告，不阻擋。
+  const [conflicts, setConflicts] = useState<{
+    teaching: string[];
+    selfStudy: string[];
+  } | null>(null);
   const [done, setDone] = useState<number | null>(null);
 
   // 進頁面就在背景把當月課表抓好。月曆與日期選擇器都是「開啟才掛載」，
@@ -103,8 +108,14 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
       });
 
       if (res.status === 409) {
-        const data = (await res.json()) as { conflicts: string[] };
-        setConflicts(data.conflicts);
+        const data = (await res.json()) as {
+          conflicts: string[];
+          selfConflicts?: string[];
+        };
+        setConflicts({
+          teaching: data.conflicts,
+          selfStudy: data.selfConflicts ?? [],
+        });
         return;
       }
       if (!res.ok) {
@@ -211,15 +222,22 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
 
         {conflicts ? (
           <Card>
-            <p className="text-sm font-semibold text-amber-800">
-              以下 {conflicts.length} 個時段你已經有課
-            </p>
-            <ul className="mt-2 space-y-0.5 text-sm text-slate-600">
-              {conflicts.slice(0, 5).map((c) => (
-                <li key={c}>{fmtSession(new Date(c))}</li>
-              ))}
-              {conflicts.length > 5 ? <li>…其餘 {conflicts.length - 5} 堂</li> : null}
-            </ul>
+            {conflicts.teaching.length ? (
+              <ConflictList
+                label={`以下 ${conflicts.teaching.length} 個時段你已經有課`}
+                times={conflicts.teaching}
+              />
+            ) : null}
+
+            {conflicts.selfStudy.length ? (
+              <div className={conflicts.teaching.length ? "mt-3" : undefined}>
+                <ConflictList
+                  label={`以下 ${conflicts.selfStudy.length} 個時段你自己也要上課`}
+                  times={conflicts.selfStudy}
+                />
+              </div>
+            ) : null}
+
             <div className="mt-3">
               <Button onClick={() => void submit(true)} disabled={submitting}>
                 仍要建立
@@ -256,5 +274,20 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
         </div>
       </div>
     </Screen>
+  );
+}
+
+/** 撞期時段清單。超過 5 筆只列前 5 筆，其餘以數量帶過。 */
+function ConflictList({ label, times }: { label: string; times: string[] }) {
+  return (
+    <>
+      <p className="text-sm font-semibold text-amber-800">{label}</p>
+      <ul className="mt-2 space-y-0.5 text-sm text-slate-600">
+        {times.slice(0, 5).map((t) => (
+          <li key={t}>{fmtSession(new Date(t))}</li>
+        ))}
+        {times.length > 5 ? <li>…其餘 {times.length - 5} 堂</li> : null}
+      </ul>
+    </>
   );
 }
