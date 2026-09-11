@@ -21,6 +21,13 @@ enum SessionStatus {
   completed
 }
 
+/// 一堂課由誰發起。落地欄位，不靠 createdAt 反推——教練點開課表看到一堂自己
+/// 沒印象排的課時，這是唯一能回答他的地方。見 SPEC.md §3.6、ADR-0002。
+enum SessionOrigin {
+  coach_scheduled
+  member_booked
+}
+
 enum LeaveStatus {
   auto_approved
   pending
@@ -46,6 +53,7 @@ enum NotificationType {
   member_schedule // 學員：教練排課完成後的課表彙總
   coach_daily // 教練：每日 08:00 今日課表彙總（已取消，見 SPEC.md §5）
   coach_leave // 教練：學員請假通知
+  coach_booking // 教練：學員預約了一堂課（SPEC.md §3.6）
 }
 
 model Coach {
@@ -67,6 +75,17 @@ model Coach {
 
   defaultDuration Int @default(60) @map("default_duration")
 
+  /// 預約總開關（SPEC.md §3.6）。關閉、或開啟但 availability 為 0 筆，學員一律無法預約。
+  /// 刻意容許這兩個真相來源並存，代價由設定頁的警示文字補償。
+  bookingEnabled Boolean @default(false) @map("booking_enabled")
+
+  /// 最短提前預約時間（小時）。早於 now + 此值的時段不出現在學員的可選清單。
+  bookingLeadHours Int @default(24) @map("booking_lead_hours")
+
+  /// 同一學員同時未上課的預約上限。系統不做堂數包／扣抵（SPEC.md §11），
+  /// 這是唯一阻止學員把教練整週約滿的機制。動它之前請先讀 ADR-0002。
+  maxOpenBookings Int @default(3) @map("max_open_bookings")
+
   /// iCal 訂閱網址的秘密 token（SPEC.md §9）。
   icalToken String @unique @default(uuid()) @map("ical_token")
 
@@ -77,6 +96,8 @@ model Coach {
   invites       Invite[]
   sessions      Session[]
   notifications Notification[]
+  availability  CoachAvailability[]
+  blocks        CoachBlock[]
 
   @@map("coaches")
 }
@@ -141,6 +162,53 @@ model CoachInvite {
   @@map("coach_invites")
 }
 
+/// 教練的可預約時段，以週為單位（SPEC.md §3.6）。
+///
+/// 休息時間不是一種資料，而是兩段區間之間的空隙：
+/// 「8:00–18:00 休息 12:00–13:00」= 兩筆 (8:00,12:00) 與 (13:00,18:00)。
+/// 獨立存休息欄位的話，「一天兩段休息」「各天休息不同」立刻要加維度；區間模型裡這些免費。
+model CoachAvailability {
+  id      String @id @default(uuid())
+  coachId String @map("coach_id")
+
+  /// 0=週日 … 6=週六，與 JS getDay() 一致（也與 time.ts 的 weekdayZh 取法一致）。
+  weekday Int
+
+  /// 自當日 00:00 起算的分鐘數，台北時間。存分鐘而非 time 型別是為了讓
+  /// 格子運算是純整數比較，不必為每個候選時段建 Date。
+  startMin Int @map("start_min")
+  /// 恆 > startMin。同一 weekday 的區間經正規化後互不重疊（見 lib/booking.ts）。
+  endMin   Int @map("end_min")
+
+  coach Coach @relation(fields: [coachId], references: [id], onDelete: Cascade)
+
+  @@index([coachId, weekday])
+  @@map("coach_availability")
+}
+
+/// 教練暫時收回的一段具體時間（SPEC.md §3.7）。只能收回，不能加開。
+///
+/// 封鎖不影響既有課程——已排定或已被預約的課不會因為新增封鎖而消失，
+/// 封鎖只讓那段時間不再產生新的可預約格子。
+model CoachBlock {
+  id      String @id @default(uuid())
+  coachId String @map("coach_id")
+
+  startAt DateTime @map("start_at")
+  /// 整天 = 當日 00:00 至次日 00:00（台北時間）。
+  endAt   DateTime @map("end_at")
+
+  /// 自用備註（出國、受傷…）。不對學員顯示——學員只該知道「不可約」，不該知道原因。
+  reason String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  coach Coach @relation(fields: [coachId], references: [id], onDelete: Cascade)
+
+  @@index([coachId, startAt])
+  @@map("coach_blocks")
+}
+
 /// 一次性邀請連結，綁定特定學員記錄（SPEC.md §3.2）。
 model Invite {
   token     String    @id @default(uuid())
@@ -172,6 +240,9 @@ model Session {
   location    String?
 
   status SessionStatus @default(scheduled)
+
+  /// 誰發起的。既有資料回填為 coach_scheduled——預約功能上線前不存在學員預約。
+  origin SessionOrigin @default(coach_scheduled)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

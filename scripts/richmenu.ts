@@ -1,10 +1,11 @@
 /**
- * 建立三組 Rich Menu 並上傳圖片（SPEC.md §7）。
+ * 建立五組 Rich Menu 並上傳圖片（SPEC.md §7）。
  * 會先刪除帳號上所有既有 Rich Menu，避免重複執行時累積。
  *
- *   npx tsx scripts/richmenu.ts
+ *   npx tsx --env-file=.env scripts/richmenu.ts
  *
- * 執行後把印出的三個 ID 填進 .env 與 Vercel 環境變數。
+ * 選單 ID 不必記下來：綁定時一律以名稱向 LINE 查詢（SPEC.md §7），
+ * 因此重建後 ID 變了也不需要同步任何環境變數。
  */
 import sharp from "sharp";
 
@@ -126,6 +127,9 @@ const MENUS: Record<string, { chatBarText: string; rows: Cell[][] }> = {
         // 與教練端同理：查課表走 postback 直接回文字，不必等網頁載入，
         // 而且 reply message 免費。
         { label: "我的課表", icon: "list", postback: "my_sessions" },
+        // 預約刻意佔一格，第一列因此擴成三格。不做成「我的課表」頁面裡的
+        // 一顆按鈕——那會讓主功能藏在另一個頁面後面，而選單還有空位（SPEC.md §7）。
+        { label: "預約課程", icon: "plus", page: "book" },
         { label: "請假", icon: "cross", page: "leave" },
       ],
       // 「聯絡教練」不能寫死網址：學員可能同時屬於多位教練，
@@ -162,6 +166,8 @@ const MENUS: Record<string, { chatBarText: string; rows: Cell[][] }> = {
     rows: [
       [
         { label: "我的課表", icon: "list", postback: "my_sessions" },
+        // 上列與一般學員版位置完全相同，切換時肌肉記憶不會錯位（同 coach_dual）。
+        { label: "預約課程", icon: "plus", page: "book" },
         { label: "請假", icon: "cross", page: "leave" },
       ],
       [

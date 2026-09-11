@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeIntervals } from "@/lib/booking";
 import { primaryRole, resolveIdentities } from "@/lib/identity";
 import { bindRichMenu } from "@/lib/line";
 import { normalizeOaUrl, verifyIdToken } from "@/lib/liff-auth";
@@ -13,6 +14,20 @@ const bodySchema = z.object({
   name: z.string().trim().min(1).max(40),
   oaUrl: z.string().trim().min(1).max(200),
   defaultDuration: z.number().int().min(15).max(240),
+  /**
+   * 可預約時段（SPEC.md §3.1）。註冊表單只給共用版，前端展開成扁平區間後送來。
+   * 選填：漏了只是預約還沒開始運作，不該讓註冊本身失敗。
+   */
+  availability: z
+    .array(
+      z.object({
+        weekday: z.number().int().min(0).max(6),
+        startMin: z.number().int().min(0).max(1440),
+        endMin: z.number().int().min(0).max(1440),
+      }),
+    )
+    .max(70)
+    .optional(),
 });
 
 export async function POST(req: Request): Promise<Response> {
@@ -56,6 +71,9 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // 建立教練與消耗邀請碼必須同時成立，否則會出現「碼被用掉但沒建帳號」。
+  // 正規化在伺服器端做（合併重疊與相鄰），不信任前端送來的形狀。
+  const availability = normalizeIntervals(body.availability ?? []);
+
   const coach = await prisma.$transaction(async (tx) => {
     const created = await tx.coach.create({
       data: {
@@ -63,6 +81,16 @@ export async function POST(req: Request): Promise<Response> {
         name: body.name,
         oaUrl,
         defaultDuration: body.defaultDuration,
+        // 新教練預設開啟預約——他在註冊表單剛填完時段，開著即刻可用。
+        // 既有教練維持關閉（欄位預設值），不做 data migration 猜他們的作息。
+        bookingEnabled: availability.length > 0,
+        availability: {
+          create: availability.map((iv) => ({
+            weekday: iv.weekday,
+            startMin: iv.startMin,
+            endMin: iv.endMin,
+          })),
+        },
       },
     });
 

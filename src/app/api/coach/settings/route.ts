@@ -17,6 +17,9 @@ export async function GET(req: Request): Promise<Response> {
     defaultDuration: c.defaultDuration,
     reminderHours: c.reminderHours,
     leaveDeadlineHours: c.leaveDeadlineHours,
+    bookingEnabled: c.bookingEnabled,
+    bookingLeadHours: c.bookingLeadHours,
+    maxOpenBookings: c.maxOpenBookings,
     // 訂閱網址含秘密代號，只回給本人。
     icalUrl: `${process.env.APP_BASE_URL}/api/calendar/${c.icalToken}.ics`,
   });
@@ -28,6 +31,9 @@ const patchSchema = z.object({
   defaultDuration: z.number().int().min(15).max(240).optional(),
   reminderHours: z.number().int().min(1).max(72).optional(),
   leaveDeadlineHours: z.number().int().min(0).max(168).optional(),
+  bookingEnabled: z.boolean().optional(),
+  bookingLeadHours: z.number().int().min(0).max(168).optional(),
+  maxOpenBookings: z.number().int().min(1).max(20).optional(),
 });
 
 export async function PATCH(req: Request): Promise<Response> {
@@ -58,6 +64,15 @@ export async function PATCH(req: Request): Promise<Response> {
       ...(body.reminderHours !== undefined ? { reminderHours: body.reminderHours } : {}),
       ...(body.leaveDeadlineHours !== undefined
         ? { leaveDeadlineHours: body.leaveDeadlineHours }
+        : {}),
+      ...(body.bookingEnabled !== undefined
+        ? { bookingEnabled: body.bookingEnabled }
+        : {}),
+      ...(body.bookingLeadHours !== undefined
+        ? { bookingLeadHours: body.bookingLeadHours }
+        : {}),
+      ...(body.maxOpenBookings !== undefined
+        ? { maxOpenBookings: body.maxOpenBookings }
         : {}),
     },
   });

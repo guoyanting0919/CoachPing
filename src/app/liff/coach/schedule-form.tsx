@@ -45,11 +45,18 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 兩類撞期分開：teaching 是自己已經排了課的時段，selfStudy 是自己身為學員
-  // 要去上課的時段（只有雙重身分的教練會有）。兩者都只警告，不阻擋。
+  // 四類撞期分開，都只警告、不阻擋：
+  //   teaching  自己已經排了課的時段
+  //   selfStudy 自己身為學員要去上課的時段（只有雙重身分的教練會有）
+  //   outside   落在自己宣告的可預約時段之外（SPEC.md §3.7）
+  //   blocked   撞到自己設的封鎖時段
+  // 後兩類的語義較弱——那是「對學員開放什麼」的宣告，不是工作時間表，
+  // 所以文案要說清楚這只是提醒，不是真的有人佔用。
   const [conflicts, setConflicts] = useState<{
     teaching: string[];
     selfStudy: string[];
+    outside: string[];
+    blocked: string[];
   } | null>(null);
   const [done, setDone] = useState<number | null>(null);
 
@@ -111,10 +118,14 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
         const data = (await res.json()) as {
           conflicts: string[];
           selfConflicts?: string[];
+          outsideAvailability?: string[];
+          blocked?: string[];
         };
         setConflicts({
           teaching: data.conflicts,
           selfStudy: data.selfConflicts ?? [],
+          outside: data.outsideAvailability ?? [],
+          blocked: data.blocked ?? [],
         });
         return;
       }
@@ -235,6 +246,27 @@ export default function ScheduleForm({ idToken }: { idToken: string }) {
                   label={`以下 ${conflicts.selfStudy.length} 個時段你自己也要上課`}
                   times={conflicts.selfStudy}
                 />
+              </div>
+            ) : null}
+
+            {conflicts.blocked.length ? (
+              <div className="mt-3">
+                <ConflictList
+                  label={`以下 ${conflicts.blocked.length} 個時段你設為封鎖`}
+                  times={conflicts.blocked}
+                />
+              </div>
+            ) : null}
+
+            {conflicts.outside.length ? (
+              <div className="mt-3">
+                <ConflictList
+                  label={`以下 ${conflicts.outside.length} 個時段不在你的可預約時間內`}
+                  times={conflicts.outside}
+                />
+                <p className="mt-1 text-xs text-slate-400">
+                  可預約時間只影響學員能約哪些時段，不影響你自己排課。
+                </p>
               </div>
             ) : null}
 

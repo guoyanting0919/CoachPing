@@ -378,6 +378,66 @@ export async function enqueueCoachLeave(
   });
 }
 
+/**
+ * 教練收到的預約通知（SPEC.md §5）。
+ * 學員不收確認訊息——他剛按完按鈕、畫面上就有結果，再推一則是純浪費。
+ */
+export async function renderCoachBooking(sessionId: string): Promise<string | null> {
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: {
+      status: true,
+      startAt: true,
+      durationMin: true,
+      coachId: true,
+      participants: { select: { memberId: true } },
+    },
+  });
+
+  // 課已取消就不該再送。學員預約後立刻請假是可能的。
+  if (!session || session.status !== "scheduled") return null;
+
+  // 預約產生的課只有一位參與者（SPEC.md §3.6：不能約進他人已有的課）。
+  const memberId = session.participants[0]?.memberId;
+  if (!memberId) return null;
+
+  // 教練端顯示的名字一律取自關係，不讀 members.display_name（SPEC.md §4）。
+  const link = await prisma.coachMember.findUnique({
+    where: { coachId_memberId: { coachId: session.coachId, memberId } },
+    select: { displayName: true },
+  });
+
+  return [
+    "【學員預約】",
+    "",
+    `${link?.displayName ?? "某位學員"} 預約了一堂課`,
+    when(session.startAt, session.durationMin),
+    "",
+    "這堂課已經排進你的課表。不方便的話請到下方選單的「我的課表」取消。",
+  ].join("\n");
+}
+
+/** 排入教練的預約通知，即時送出。 */
+export async function enqueueCoachBooking(
+  db: Db,
+  sessionId: string,
+  coachLineUserId: string,
+  coachId: string,
+): Promise<void> {
+  await db.notification.createMany({
+    data: [
+      {
+        targetLineUserId: coachLineUserId,
+        type: "coach_booking",
+        payload: {},
+        sendAt: new Date(),
+        sessionId,
+        coachId,
+      },
+    ],
+  });
+}
+
 /** 學員收到的課程異動通知。 */
 export async function renderMemberChange(
   payload: {

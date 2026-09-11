@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import AvailabilityEditor from "./coach/availability-editor";
 import { Button, ErrorBox, Field, Hint, Screen, Select, TextInput, Title } from "./ui";
+import { DEFAULT_SHARED, expandShared, type Interval } from "@/lib/booking";
 
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_oa_url: "官方帳號連結格式不正確。請填 @ 開頭的 ID 或 line.me 開頭的網址。",
@@ -25,6 +27,11 @@ export default function CoachRegisterForm({
   const [name, setName] = useState(defaultName);
   const [oaUrl, setOaUrl] = useState("");
   const [defaultDuration, setDefaultDuration] = useState(60);
+  // 預填而非留空：空白的時段表會被直接跳過，而跳過的人不會有人來預約，
+  // 他也不會知道原因（SPEC.md §3.1）。
+  const [availability, setAvailability] = useState<Interval[]>(() =>
+    expandShared(DEFAULT_SHARED),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +44,14 @@ export default function CoachRegisterForm({
       const res = await fetch("/api/coach/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken, inviteToken, name, oaUrl, defaultDuration }),
+        body: JSON.stringify({
+          idToken,
+          inviteToken,
+          name,
+          oaUrl,
+          defaultDuration,
+          availability,
+        }),
       });
 
       if (!res.ok) {
@@ -94,6 +108,21 @@ export default function CoachRegisterForm({
               </option>
             ))}
           </Select>
+        </Field>
+
+        {/*
+          註冊表單只給共用版（sharedOnly）：這是第一個畫面，
+          塞一個七列編輯器會讓教練直接關掉。逐日調整留在設定頁。
+        */}
+        <Field
+          label="可上課時間"
+          hint="學員只能約在這些時間內。之後可在設定裡調整"
+        >
+          <AvailabilityEditor
+            intervals={availability}
+            onChange={setAvailability}
+            sharedOnly
+          />
         </Field>
 
         {error ? <ErrorBox>{error}</ErrorBox> : null}

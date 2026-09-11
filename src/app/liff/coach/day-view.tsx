@@ -14,6 +14,7 @@ export type SessionRow = {
   durationMin: number;
   location: string | null;
   status: "scheduled" | "cancelled" | "completed";
+  origin: "coach_scheduled" | "member_booked";
   participants: { id: string; name: string; linked: boolean }[];
 };
 
@@ -125,8 +126,15 @@ function SessionCard({
           >
             {fmt(start, "HH:mm")}–{fmt(end, "HH:mm")}
           </span>
+          {/*
+            「學員預約」優先於「重複課程」顯示，而且預約來的課不可能有 seriesId
+            （學員一次只能約一堂，SPEC.md §3.6）所以兩者不會競爭。
+            這個標記是教練看到一堂自己沒印象排的課時唯一能得到的答案（ADR-0002）。
+          */}
           {cancelled ? (
             <Badge className="bg-slate-100 text-slate-500">已取消</Badge>
+          ) : session.origin === "member_booked" ? (
+            <Badge className="bg-emerald-50 text-emerald-700">學員預約</Badge>
           ) : session.seriesId ? (
             <Badge className="bg-slate-100 text-slate-500">重複課程</Badge>
           ) : null}

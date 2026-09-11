@@ -1,5 +1,6 @@
 "use client";
 
+import BookSession from "./book-session";
 import ContactCoaches from "./contact-coaches";
 import MemberSessions from "./member-sessions";
 import { Hint, Screen, Title } from "../ui";
@@ -14,6 +15,9 @@ export default function MemberApp({
   page: string | null;
 }) {
   switch (page) {
+    case "book":
+      return <BookSession idToken={idToken} />;
+
     case "contact":
       return <ContactCoaches idToken={idToken} />;
 

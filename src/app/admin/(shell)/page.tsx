@@ -17,6 +17,7 @@ const TYPE_LABELS: Record<NotificationType, string> = {
   member_schedule: "學員：排課完成",
   coach_daily: "教練：每日課表",
   coach_leave: "教練：學員請假",
+  coach_booking: "教練：學員預約",
 };
 
 export default async function DashboardPage() {

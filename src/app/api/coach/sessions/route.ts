@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireCoach } from "@/lib/auth";
+import { findBlockedConflicts, findOutsideAvailability } from "@/lib/booking";
 import { flushNotifications } from "@/lib/dispatch";
 import {
   enqueueScheduleNotice,
@@ -51,6 +52,7 @@ export async function GET(req: Request): Promise<Response> {
       durationMin: true,
       location: true,
       status: true,
+      origin: true,
       participants: { select: { memberId: true } },
     },
   });
@@ -71,6 +73,7 @@ export async function GET(req: Request): Promise<Response> {
       durationMin: s.durationMin,
       location: s.location,
       status: s.status,
+      origin: s.origin,
       participants: s.participants.map((p) => ({
         id: p.memberId,
         name: nameOf.get(p.memberId) ?? "（已移除）",
@@ -125,16 +128,35 @@ export async function POST(req: Request): Promise<Response> {
   });
 
   if (!body.force) {
-    const [conflicts, selfConflicts] = await Promise.all([
+    // 可預約時段與封鎖時段只是「對學員開放什麼」的宣告，不是教練的工作時間表，
+    // 因此排在外面只提示、不阻擋（SPEC.md §3.7）。教練是老闆，臨時跟熟客
+    // 約在週日早上是常態。
+    const [conflicts, selfConflicts, availability, blocks] = await Promise.all([
       findConflicts(coach.id, startTimes, durationMin),
       findSelfStudyConflicts(coach.lineUserId, startTimes, durationMin),
+      prisma.coachAvailability.findMany({
+        where: { coachId: coach.id },
+        select: { weekday: true, startMin: true, endMin: true },
+      }),
+      prisma.coachBlock.findMany({
+        where: { coachId: coach.id, endAt: { gte: startTimes[0] } },
+        select: { startAt: true, endAt: true },
+      }),
     ]);
-    if (conflicts.length || selfConflicts.length) {
+
+    // availability 為空時 findOutsideAvailability 回空陣列——沒宣告過時段的教練
+    // （包含所有既有教練）不會因為這個新功能而每次排課都被擋一次。
+    const outside = findOutsideAvailability(availability, startTimes, durationMin);
+    const blocked = findBlockedConflicts(blocks, startTimes, durationMin);
+
+    if (conflicts.length || selfConflicts.length || outside.length || blocked.length) {
       return Response.json(
         {
           error: "conflicts",
           conflicts: conflicts.map((d) => d.toISOString()),
           selfConflicts: selfConflicts.map((d) => d.toISOString()),
+          outsideAvailability: outside.map((d) => d.toISOString()),
+          blocked: blocked.map((d) => d.toISOString()),
         },
         { status: 409 },
       );

@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { lineClient } from "./line";
 import {
+  renderCoachBooking,
   renderCoachLeave,
   renderMemberChange,
   renderMemberReminder,
@@ -162,6 +163,9 @@ async function renderText(n: Claimed): Promise<string | null> {
       const id = (n.payload as { leaveRequestId?: string } | null)?.leaveRequestId;
       return id ? renderCoachLeave(id) : null;
     }
+
+    case "coach_booking":
+      return n.sessionId ? renderCoachBooking(n.sessionId) : null;
 
     case "member_schedule":
       return renderMemberSchedule(

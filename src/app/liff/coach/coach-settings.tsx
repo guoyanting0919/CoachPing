@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import AvailabilityEditor from "./availability-editor";
+import BlocksEditor from "./blocks-editor";
 import { api } from "../api";
 import CopyableText from "../copyable-text";
+import type { Interval } from "@/lib/booking";
 import {
   Button,
   Card,
@@ -21,6 +24,9 @@ type Settings = {
   defaultDuration: number;
   reminderHours: number;
   leaveDeadlineHours: number;
+  bookingEnabled: boolean;
+  bookingLeadHours: number;
+  maxOpenBookings: number;
   icalUrl: string;
 };
 
@@ -31,17 +37,26 @@ const ERROR_MESSAGES: Record<string, string> = {
 export default function CoachSettings({ idToken }: { idToken: string }) {
   const [initial, setInitial] = useState<Settings | null>(null);
   const [form, setForm] = useState<Settings | null>(null);
+  // 可預約時段與設定分開儲存：它走自己的 PUT（整週替換），
+  // 塞進 settings 的 PATCH 會讓那支 API 同時負責兩種形狀完全不同的資料。
+  const [availability, setAvailability] = useState<Interval[] | null>(null);
+  const [savedAvailability, setSavedAvailability] = useState<Interval[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    api<Settings>("/api/coach/settings", idToken)
-      .then((d) => {
+    Promise.all([
+      api<Settings>("/api/coach/settings", idToken),
+      api<{ intervals: Interval[] }>("/api/coach/availability", idToken),
+    ])
+      .then(([d, a]) => {
         if (cancelled) return;
         setInitial(d);
         setForm(d);
+        setAvailability(a.intervals);
+        setSavedAvailability(a.intervals);
       })
       .catch((err: unknown) => {
         if (!cancelled) setError((err as Error).message);
@@ -68,6 +83,9 @@ export default function CoachSettings({ idToken }: { idToken: string }) {
           defaultDuration: form.defaultDuration,
           reminderHours: form.reminderHours,
           leaveDeadlineHours: form.leaveDeadlineHours,
+          bookingEnabled: form.bookingEnabled,
+          bookingLeadHours: form.bookingLeadHours,
+          maxOpenBookings: form.maxOpenBookings,
         }),
       });
       if (!res.ok) {
@@ -75,6 +93,20 @@ export default function CoachSettings({ idToken }: { idToken: string }) {
         setError(ERROR_MESSAGES[data.error ?? ""] ?? `儲存失敗（${res.status}）`);
         return;
       }
+
+      // 時段的儲存放在設定之後：時段寫失敗時設定已經存好，重按一次只會重送時段，
+      // 反過來則會讓「已儲存」的時段搭上沒存到的開關。
+      if (availability && JSON.stringify(availability) !== JSON.stringify(savedAvailability)) {
+        const saved = await api<{ intervals: Interval[] }>(
+          "/api/coach/availability",
+          idToken,
+          { method: "PUT", body: { intervals: availability } },
+        );
+        // 伺服器會正規化（合併重疊與相鄰），回傳的才是真正存下去的形狀。
+        setAvailability(saved.intervals);
+        setSavedAvailability(saved.intervals);
+      }
+
       setInitial(form);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -94,7 +126,9 @@ export default function CoachSettings({ idToken }: { idToken: string }) {
   }
   if (!form || !initial) return <Screen>載入中…</Screen>;
 
-  const dirty = JSON.stringify(form) !== JSON.stringify(initial);
+  const dirty =
+    JSON.stringify(form) !== JSON.stringify(initial) ||
+    JSON.stringify(availability) !== JSON.stringify(savedAvailability);
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) =>
     setForm({ ...form, [k]: v });
 
@@ -167,6 +201,91 @@ export default function CoachSettings({ idToken }: { idToken: string }) {
                 ))}
               </Select>
             </Field>
+          </div>
+        </Section>
+
+        <Section
+          title="學員預約"
+          hint="開放後，學員可自己在你有空的時間約課"
+        >
+          <div className="space-y-4">
+            <label className="flex items-center gap-2.5">
+              <input
+                type="checkbox"
+                checked={form.bookingEnabled}
+                onChange={(e) => set("bookingEnabled", e.target.checked)}
+                className="size-5 accent-[#06C755]"
+              />
+              <span className="text-sm font-medium text-slate-700">開放學員預約</span>
+            </label>
+
+            {/*
+              開關與「有沒有時段」是兩個真相來源（SPEC.md §3.6 刻意接受的代價）。
+              這段紅字是唯一能讓教練察覺自己只做了一半的地方——少了它，
+              他會一直納悶為什麼沒有人來預約。
+            */}
+            {form.bookingEnabled && availability?.length === 0 ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                你還沒設定任何可預約時段，學員目前仍無法預約。
+              </div>
+            ) : null}
+
+            {form.bookingEnabled ? (
+              <>
+                <Field
+                  label="最晚可在上課前多久預約"
+                  hint="更晚提出的時段不會出現在學員的可選清單"
+                >
+                  <Select
+                    value={form.bookingLeadHours}
+                    onChange={(e) => set("bookingLeadHours", Number(e.target.value))}
+                  >
+                    {[2, 6, 12, 24, 48, 72].map((h) => (
+                      <option key={h} value={h}>
+                        {h} 小時前
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <Field
+                  label="同時最多可預約幾堂"
+                  hint="上完一堂就釋放一個額度。系統不記剩餘堂數，這是唯一的上限"
+                >
+                  <Select
+                    value={form.maxOpenBookings}
+                    onChange={(e) => set("maxOpenBookings", Number(e.target.value))}
+                  >
+                    {[1, 2, 3, 4, 5, 8, 12, 20].map((n) => (
+                      <option key={n} value={n}>
+                        {n} 堂
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <div>
+                  <p className="text-sm font-medium text-slate-700">可預約時段</p>
+                  <p className="mt-0.5 mb-2 text-xs text-slate-400">
+                    以週為單位。你自己排課不受這裡限制
+                  </p>
+                  {availability ? (
+                    <AvailabilityEditor
+                      intervals={availability}
+                      onChange={setAvailability}
+                    />
+                  ) : null}
+                </div>
+
+                <div>
+                  <p className="text-sm font-medium text-slate-700">封鎖時段</p>
+                  <p className="mt-0.5 mb-2 text-xs text-slate-400">
+                    出國、受傷、國定假日——這段時間學員約不到
+                  </p>
+                  <BlocksEditor idToken={idToken} />
+                </div>
+              </>
+            ) : null}
           </div>
         </Section>
 
