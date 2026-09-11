@@ -22,6 +22,8 @@ type Selected = {
   durationMin: number;
   leadHours: number;
   remaining: number;
+  maxOpenBookings: number;
+  openBookings: number;
   horizonDays: number;
   days: { date: string; starts: string[] }[];
 };
@@ -29,19 +31,22 @@ type Selected = {
 type Options = { coaches: { id: string; name: string }[]; selected: Selected | null };
 
 const ERROR_MESSAGES: Record<string, string> = {
-  slot_taken: "這個時段剛被約走了，已更新可預約時間。",
-  too_many_bookings: "你已達到可預約的堂數上限，上完課之後才能再約。",
+  slot_taken: "有時段剛被約走了，已更新可預約時間，請重新選擇。",
+  too_many_bookings: "超過可預約的堂數上限，上完課之後才能再約。",
+  slots_overlap: "選到互相重疊的時段了，請重新選擇。",
   coach_not_bookable: "這位教練目前不開放預約。",
 };
 
 export default function BookSession({ idToken }: { idToken: string }) {
   const [options, setOptions] = useState<Options | null>(null);
   const [coachId, setCoachId] = useState<string | null>(null);
-  const [picked, setPicked] = useState<string | null>(null);
+  // 可複選，上限是 remaining。全有全無地送出——部分成功會逼出
+  // 「哪幾堂成立了」的一整套額外語義。
+  const [picked, setPicked] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState<string | null>(null);
+  const [done, setDone] = useState<string[] | null>(null);
 
   const load = useCallback(
     async (forCoach: string | null) => {
@@ -76,23 +81,23 @@ export default function BookSession({ idToken }: { idToken: string }) {
     };
   }, [idToken]);
 
-  async function book(startAt: string) {
-    if (!coachId) return;
+  async function book() {
+    if (!coachId || picked.length === 0) return;
     setSubmitting(true);
     setError(null);
     setNotice(null);
     try {
       await api("/api/member/booking", idToken, {
         method: "POST",
-        body: { coachId, startAt },
+        body: { coachId, startAts: picked },
       });
-      setDone(startAt);
+      setDone([...picked].sort());
     } catch (err) {
       const code = (err as Error).message;
       // 送出時伺服器會重新檢查，不信任這張可能已經放了十分鐘的畫面。
       // 被搶走就重抓時段表——只講「失敗」而不更新畫面，學員會再按同一格。
       setNotice(ERROR_MESSAGES[code] ?? `預約失敗（${code}）`);
-      setPicked(null);
+      setPicked([]);
       await load(coachId).catch(() => undefined);
     } finally {
       setSubmitting(false);
@@ -109,25 +114,32 @@ export default function BookSession({ idToken }: { idToken: string }) {
   if (!options) return <Screen>載入中…</Screen>;
 
   if (done) {
-    const at = new Date(done);
+    const duration = options.selected?.durationMin ?? 0;
     return (
       <Screen>
         <Title>預約完成</Title>
         <Hint>
-          {fmt(at, "M/d")}（{weekdayZh(at)}）
-          {fmtTimeRange(at, options.selected?.durationMin ?? 0)}
-          <br />
-          已排進課表，教練也收到通知了。課前會再提醒你一次。
+          已預約 {done.length} 堂，都排進課表了，教練也收到通知。課前會再提醒你一次。
         </Hint>
+        <ul className="mt-4 space-y-1.5">
+          {done.map((iso) => {
+            const at = new Date(iso);
+            return (
+              <li key={iso} className="text-sm text-slate-700">
+                {fmt(at, "M/d")}（{weekdayZh(at)}）{fmtTimeRange(at, duration)}
+              </li>
+            );
+          })}
+        </ul>
         <div className="mt-6">
           <Button
             onClick={() => {
               setDone(null);
-              setPicked(null);
+              setPicked([]);
               void load(coachId);
             }}
           >
-            再約一堂
+            再約
           </Button>
         </div>
       </Screen>
@@ -172,6 +184,20 @@ export default function BookSession({ idToken }: { idToken: string }) {
 
   const s = options.selected;
   const full = s.remaining <= 0;
+  const atLimit = picked.length >= s.remaining;
+
+  /**
+   * 已選的時段會擋掉與它重疊的候選。時長 60 分鐘時 09:00 與 09:30
+   * 各自都是空的，一起約卻會讓教練同一時間有兩堂課。
+   * 伺服器也會擋（slots_overlap），這裡是為了不讓學員按了才被拒。
+   */
+  const blockedByPicked = (iso: string) =>
+    picked.some(
+      (p) =>
+        p !== iso &&
+        Math.abs(new Date(p).getTime() - new Date(iso).getTime()) <
+          s.durationMin * 60_000,
+    );
 
   return (
     <Screen>
@@ -185,7 +211,7 @@ export default function BookSession({ idToken }: { idToken: string }) {
           type="button"
           onClick={() => {
             setOptions({ coaches: options.coaches, selected: null });
-            setPicked(null);
+            setPicked([]);
           }}
           className="mt-1 text-sm font-medium text-[#06C755]"
         >
@@ -199,11 +225,34 @@ export default function BookSession({ idToken }: { idToken: string }) {
         </div>
       ) : null}
 
+      {/*
+        分母是「還能再約幾堂」，不是教練設的總上限——學員關心的是自己現在還能選幾個，
+        而已經約掉的堂數另外說明，才不會讓 0/2 看起來像系統算錯。
+      */}
       {full ? (
         <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-          你已經約滿可預約的堂數，上完課之後才能再約。需要臨時加課請直接聯絡教練。
+          你已經約滿 {s.maxOpenBookings} 堂，上完課之後才能再約。
+          需要臨時加課請直接聯絡教練。
         </div>
-      ) : null}
+      ) : (
+        <div className="mt-4 flex items-baseline justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <span className="text-sm text-slate-600">
+            已選
+            <span
+              className={`ml-1.5 text-base font-semibold ${
+                atLimit ? "text-[#06C755]" : "text-slate-900"
+              }`}
+            >
+              {picked.length}/{s.remaining}
+            </span>
+          </span>
+          <span className="text-xs text-slate-400">
+            {s.openBookings > 0
+              ? `上限 ${s.maxOpenBookings} 堂，已有 ${s.openBookings} 堂未上課`
+              : `最多可預約 ${s.maxOpenBookings} 堂`}
+          </span>
+        </div>
+      )}
 
       <div className="mt-5 space-y-4 pb-28">
         {s.days.length === 0 ? (
@@ -218,23 +267,36 @@ export default function BookSession({ idToken }: { idToken: string }) {
                 {fmtMonthDay(day.date)}（{weekdayZh(new Date(`${day.date}T00:00:00Z`))}）
               </h2>
               <div className="mt-2 flex flex-wrap gap-2">
-                {day.starts.map((iso) => (
-                  <button
-                    key={iso}
-                    type="button"
-                    disabled={full || submitting}
-                    onClick={() => setPicked(iso)}
-                    className={`rounded-xl px-3.5 py-2.5 text-sm font-medium transition ${
-                      picked === iso
-                        ? "bg-[#06C755] text-white"
-                        : full
-                          ? "bg-slate-100 text-slate-300"
-                          : "bg-white text-slate-800 ring-1 ring-slate-200"
-                    }`}
-                  >
-                    {fmt(new Date(iso), "HH:mm")}
-                  </button>
-                ))}
+                {day.starts.map((iso) => {
+                  const on = picked.includes(iso);
+                  // 已達上限時只剩「取消已選的」還能按，否則學員會一直按到沒反應。
+                  const disabled =
+                    full || submitting || blockedByPicked(iso) || (atLimit && !on);
+
+                  return (
+                    <button
+                      key={iso}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() =>
+                        setPicked((prev) =>
+                          prev.includes(iso)
+                            ? prev.filter((x) => x !== iso)
+                            : [...prev, iso].sort(),
+                        )
+                      }
+                      className={`rounded-xl px-3.5 py-2.5 text-sm font-medium transition ${
+                        on
+                          ? "bg-[#06C755] text-white"
+                          : disabled
+                            ? "bg-slate-100 text-slate-300"
+                            : "bg-white text-slate-800 ring-1 ring-slate-200"
+                      }`}
+                    >
+                      {fmt(new Date(iso), "HH:mm")}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ))
@@ -246,15 +308,21 @@ export default function BookSession({ idToken }: { idToken: string }) {
         </p>
       </div>
 
-      {picked ? (
+      {picked.length > 0 ? (
         <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 p-4 backdrop-blur">
           <div className="mx-auto max-w-md">
-            <p className="mb-2 text-center text-sm text-slate-600">
-              {fmt(new Date(picked), "M/d")}（{weekdayZh(new Date(picked))}）
-              {fmtTimeRange(new Date(picked), s.durationMin)}
-            </p>
-            <Button onClick={() => void book(picked)} disabled={submitting}>
-              {submitting ? "預約中…" : "確認預約"}
+            {/* 列出每一堂的確切時間。只寫「共 N 堂」學員得自己回想選了哪些，
+                而選錯的代價是要再請假一次。 */}
+            <div className="mb-2 max-h-20 overflow-y-auto text-center text-sm leading-relaxed text-slate-600">
+              {picked.map((iso) => (
+                <p key={iso}>
+                  {fmt(new Date(iso), "M/d")}（{weekdayZh(new Date(iso))}）
+                  {fmtTimeRange(new Date(iso), s.durationMin)}
+                </p>
+              ))}
+            </div>
+            <Button onClick={() => void book()} disabled={submitting}>
+              {submitting ? "預約中…" : `確認預約 ${picked.length} 堂`}
             </Button>
           </div>
         </div>

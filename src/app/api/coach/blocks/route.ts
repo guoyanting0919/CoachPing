@@ -8,6 +8,8 @@ export const dynamic = "force-dynamic";
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** 迄時另外接受 24:00——那不是一個時刻，是一天的結尾。 */
+const HHMM_END = /^([01]\d|2[0-3]):[0-5]\d|24:00$/;
 
 /**
  * 封鎖時段（SPEC.md §3.7）。只能收回，不能加開。
@@ -41,7 +43,7 @@ const createSchema = z
     /** allDay 為真時忽略這兩個欄位。 */
     allDay: z.boolean().default(true),
     startTime: z.string().regex(HHMM).optional(),
-    endTime: z.string().regex(HHMM).optional(),
+    endTime: z.string().regex(HHMM_END).optional(),
     reason: z.string().trim().max(100).optional(),
   })
   .refine((v) => v.allDay || (v.startTime !== undefined && v.endTime !== undefined), {
@@ -60,9 +62,11 @@ export async function POST(req: Request): Promise<Response> {
   const startAt = body.allDay
     ? taipeiDateTime(body.startDate, "00:00")
     : taipeiDateTime(body.startDate, body.startTime!);
-  const endAt = body.allDay
-    ? new Date(taipeiDateTime(body.endDate, "00:00").getTime() + 24 * 60 * 60 * 1000)
-    : taipeiDateTime(body.endDate, body.endTime!);
+  // 整天、以及指定到 24:00 的，都是「結束日的次日 00:00」。
+  const endAt =
+    body.allDay || body.endTime === "24:00"
+      ? new Date(taipeiDateTime(body.endDate, "00:00").getTime() + 24 * 60 * 60 * 1000)
+      : taipeiDateTime(body.endDate, body.endTime!);
 
   if (endAt <= startAt) return Response.json({ error: "invalid_range" }, { status: 400 });
 

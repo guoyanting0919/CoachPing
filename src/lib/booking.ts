@@ -125,8 +125,13 @@ export function minToHHMM(min: number): string {
   return `${String(h).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 }
 
-/** "08:00" → 480。格式不合回 null。 */
+/**
+ * "08:00" → 480。格式不合回 null。
+ * 額外接受 "24:00"（= 1440）：區間的迄時需要表達「開放到午夜」，
+ * 而那不是一個合法的時刻、只是一天的結尾。
+ */
 export function hhmmToMin(value: string): number | null {
+  if (value === "24:00") return 24 * 60;
   const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
   if (!m) return null;
   return Number(m[1]) * 60 + Number(m[2]);

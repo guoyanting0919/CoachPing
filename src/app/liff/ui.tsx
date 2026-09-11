@@ -138,6 +138,50 @@ export function Card({ children }: { children: React.ReactNode }) {
   return <div className="rounded-2xl bg-white p-4 shadow-sm">{children}</div>;
 }
 
+/** 00:00–23:30，每 30 分鐘一格。 */
+const HALF_HOURS = Array.from({ length: 48 }, (_, i) => {
+  const h = String(Math.floor(i / 2)).padStart(2, "0");
+  return `${h}:${i % 2 ? "30" : "00"}`;
+});
+
+/**
+ * 單一下拉的時刻選擇，每 30 分鐘一格。
+ *
+ * 與下面的 TimeSelect（時／分兩段式）刻意不同：一列要放「起–迄」兩個時刻時，
+ * 兩段式會變成四個下拉，在 375px 寬的螢幕上必然撐出橫向捲軸。
+ * 可預約時段與封鎖時段的邊界實務上都落在整點或半點，少掉的解析度沒有代價；
+ * 排課的「幾點上課」仍用 TimeSelect，那裡一列只有一個時刻。
+ *
+ * 用 flex-1 + min-w-0 而非固定寬度：兩個並排時各自收縮到容器裝得下，
+ * 不論螢幕多窄都不會溢出。
+ */
+export function HalfHourSelect({
+  value,
+  onChange,
+  endOfDay = false,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  /** 迄時用：拿掉 00:00、補上 24:00，讓「開放到午夜」表達得出來。 */
+  endOfDay?: boolean;
+}) {
+  const options = endOfDay ? [...HALF_HOURS.slice(1), "24:00"] : HALF_HOURS;
+
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white py-3 pl-3 pr-1 text-base text-slate-900 outline-none focus:border-[#06C755]"
+    >
+      {options.map((t) => (
+        <option key={t} value={t}>
+          {t}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 /** 私教排課都落在整點或半點，開放到分鐘只會讓教練多滑很久。 */
 const MINUTES = ["00", "30"];

@@ -380,13 +380,21 @@ export async function enqueueCoachLeave(
 
 /**
  * 教練收到的預約通知（SPEC.md §5）。
- * 學員不收確認訊息——他剛按完按鈕、畫面上就有結果，再推一則是純浪費。
+ *
+ * 學員一次可預約多堂（上限為 coaches.max_open_bookings），而那**只發一則**：
+ * 一次預約動作是一件事，拆成三則推播是三倍成本換來同一個資訊。
+ * 學員自己不收確認訊息——他剛按完按鈕、畫面上就有結果。
  */
-export async function renderCoachBooking(sessionId: string): Promise<string | null> {
-  const session = await prisma.session.findUnique({
-    where: { id: sessionId },
+export async function renderCoachBooking(
+  sessionIds: string[],
+): Promise<string | null> {
+  if (sessionIds.length === 0) return null;
+
+  // 限定 scheduled：預約後立刻請假掉的那幾堂會自動從清單消失。
+  const sessions = await prisma.session.findMany({
+    where: { id: { in: sessionIds }, status: "scheduled" },
+    orderBy: { startAt: "asc" },
     select: {
-      status: true,
       startAt: true,
       durationMin: true,
       coachId: true,
@@ -394,44 +402,55 @@ export async function renderCoachBooking(sessionId: string): Promise<string | nu
     },
   });
 
-  // 課已取消就不該再送。學員預約後立刻請假是可能的。
-  if (!session || session.status !== "scheduled") return null;
+  // 全部都不在了，這則通知失去意義。取消本身已有別的通知路徑。
+  if (sessions.length === 0) return null;
 
-  // 預約產生的課只有一位參與者（SPEC.md §3.6：不能約進他人已有的課）。
-  const memberId = session.participants[0]?.memberId;
+  // 預約產生的課只有一位參與者（SPEC.md §3.6：不能約進他人已有的課），
+  // 且一次預約的每一堂都是同一位學員。
+  const memberId = sessions[0].participants[0]?.memberId;
   if (!memberId) return null;
 
   // 教練端顯示的名字一律取自關係，不讀 members.display_name（SPEC.md §4）。
   const link = await prisma.coachMember.findUnique({
-    where: { coachId_memberId: { coachId: session.coachId, memberId } },
+    where: { coachId_memberId: { coachId: sessions[0].coachId, memberId } },
     select: { displayName: true },
   });
 
   return [
     "【學員預約】",
     "",
-    `${link?.displayName ?? "某位學員"} 預約了一堂課`,
-    when(session.startAt, session.durationMin),
+    `${link?.displayName ?? "某位學員"} 預約了 ${sessions.length} 堂課`,
+    ...sessions.map((s) => when(s.startAt, s.durationMin)),
     "",
-    "這堂課已經排進你的課表。不方便的話請到下方選單的「我的課表」取消。",
+    sessions.length === 1
+      ? "這堂課已經排進你的課表。不方便的話請到下方選單的「我的課表」取消。"
+      : "這些課已經排進你的課表。不方便的話請到下方選單的「我的課表」逐堂取消。",
   ].join("\n");
 }
 
-/** 排入教練的預約通知，即時送出。 */
+/**
+ * 排入教練的預約通知，即時送出。一次預約動作一則，不論約了幾堂。
+ *
+ * sessionId 欄位只放第一堂：那個欄位是給「課程異動時找出相關通知」用的單一外鍵，
+ * 真正的清單在 payload.sessionIds。少了 sessionId 會讓這則通知無從歸屬某堂課，
+ * 但放上全部也做不到——欄位只有一個。
+ */
 export async function enqueueCoachBooking(
   db: Db,
-  sessionId: string,
+  sessionIds: string[],
   coachLineUserId: string,
   coachId: string,
 ): Promise<void> {
+  if (sessionIds.length === 0) return;
+
   await db.notification.createMany({
     data: [
       {
         targetLineUserId: coachLineUserId,
         type: "coach_booking",
-        payload: {},
+        payload: { sessionIds },
         sendAt: new Date(),
-        sessionId,
+        sessionId: sessionIds[0],
         coachId,
       },
     ],

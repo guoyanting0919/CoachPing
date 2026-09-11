@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Chip, Field, TimeSelect } from "../ui";
+import { Chip, Field, HalfHourSelect } from "../ui";
 import {
   DEFAULT_SHARED,
   expandShared,
@@ -190,7 +190,7 @@ function PerDayEditor({
             ) : (
               <div className="mt-2 space-y-2">
                 {day.map((iv, i) => (
-                  <div key={`${iv.startMin}-${i}`} className="flex items-center gap-2">
+                  <div key={`${iv.startMin}-${i}`} className="flex min-w-0 items-center gap-2">
                     <TimeRange
                       startMin={iv.startMin}
                       endMin={iv.endMin}
@@ -242,9 +242,10 @@ function TimeRange({
   endMin: number;
   onChange: (startMin: number, endMin: number) => void;
 }) {
+  // min-w-0 讓兩個下拉在窄螢幕上各自收縮，不撐出橫向捲軸。
   return (
-    <div className="flex items-center gap-2">
-      <TimeSelect
+    <div className="flex min-w-0 items-center gap-2">
+      <HalfHourSelect
         value={minToHHMM(startMin)}
         onChange={(v) => {
           const min = hhmmToMin(v);
@@ -254,7 +255,8 @@ function TimeRange({
         }}
       />
       <span className="shrink-0 text-slate-400">–</span>
-      <TimeSelect
+      <HalfHourSelect
+        endOfDay
         value={minToHHMM(endMin)}
         onChange={(v) => {
           const min = hhmmToMin(v);

@@ -164,8 +164,13 @@ async function renderText(n: Claimed): Promise<string | null> {
       return id ? renderCoachLeave(id) : null;
     }
 
-    case "coach_booking":
-      return n.sessionId ? renderCoachBooking(n.sessionId) : null;
+    case "coach_booking": {
+      // 一次預約可含多堂，清單在 payload。sessionId 只是第一堂（見 notifications.ts），
+      // 舊資料沒有 payload.sessionIds 時退回用它，不讓既有佇列項目變成無法渲染。
+      const ids = (n.payload as { sessionIds?: string[] } | null)?.sessionIds;
+      if (ids?.length) return renderCoachBooking(ids);
+      return n.sessionId ? renderCoachBooking([n.sessionId]) : null;
+    }
 
     case "member_schedule":
       return renderMemberSchedule(

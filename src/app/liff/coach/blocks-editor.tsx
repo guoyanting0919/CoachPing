@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
-import { Button, ErrorBox, TimeSelect } from "../ui";
+import { Button, ErrorBox, HalfHourSelect } from "../ui";
 import { fmt, weekdayZh, ymd } from "@/lib/time";
 
 /**
@@ -143,10 +143,10 @@ export default function BlocksEditor({ idToken }: { idToken: string }) {
           </label>
 
           {allDay ? null : (
-            <div className="flex items-center gap-2">
-              <TimeSelect value={startTime} onChange={setStartTime} />
+            <div className="flex min-w-0 items-center gap-2">
+              <HalfHourSelect value={startTime} onChange={setStartTime} />
               <span className="shrink-0 text-slate-400">–</span>
-              <TimeSelect value={endTime} onChange={setEndTime} />
+              <HalfHourSelect endOfDay value={endTime} onChange={setEndTime} />
             </div>
           )}
 
