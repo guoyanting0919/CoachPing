@@ -19,6 +19,8 @@ import { fmt, fmtMonthDay, fmtTimeRange, weekdayZh } from "@/lib/time";
 type Selected = {
   coachId: string;
   coachName: string;
+  /** 教練開了預約但沒有任何可預約時段。與「約滿了」是不同的原因。 */
+  closed?: boolean;
   durationMin: number;
   leadHours: number;
   remaining: number;
@@ -183,6 +185,18 @@ export default function BookSession({ idToken }: { idToken: string }) {
   }
 
   const s = options.selected;
+
+  if (s.closed) {
+    return (
+      <Screen>
+        <Title>預約課程</Title>
+        <Hint>
+          {s.coachName} 教練目前沒有開放可預約的時間。想約課請直接聯絡教練。
+        </Hint>
+      </Screen>
+    );
+  }
+
   const full = s.remaining <= 0;
   const atLimit = picked.length >= s.remaining;
 

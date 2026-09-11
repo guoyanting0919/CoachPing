@@ -48,10 +48,23 @@ export async function GET(req: Request): Promise<Response> {
 
   const ctx = await loadBookingContext(prisma, coachId, now);
   if (!ctx) {
-    // 開關開著但沒有時段。對學員而言與關閉無法區分，也不該區分。
+    // 開關開著但沒有任何可預約時段。對學員而言與關閉無法區分，也不該區分——
+    // closed 讓前端說「這位教練目前不開放預約」，而不是拿 remaining: 0
+    // 去走「你已經約滿了」那條路，那是完全不同的原因。
     return Response.json({
       coaches: candidates.map((c) => ({ id: c.id, name: c.name })),
-      selected: { coachId, coachName: "", durationMin: 0, days: [], remaining: 0 },
+      selected: {
+        coachId,
+        coachName: candidates.find((c) => c.id === coachId)?.name ?? "",
+        closed: true,
+        durationMin: 0,
+        leadHours: 0,
+        remaining: 0,
+        maxOpenBookings: 0,
+        openBookings: 0,
+        horizonDays: BOOKING_HORIZON_DAYS,
+        days: [],
+      },
     });
   }
 
@@ -126,7 +139,10 @@ export async function POST(req: Request): Promise<Response> {
       // 然後雙雙寫入——結果是兩個都成功、沒有人看到「已被預約」，而發現問題的人是教練。
       // 刻意不用 sessions(coach_id, start_at) 的唯一索引：那會弄壞教練帶 force
       // 刻意排重疊課的既有功能（SPEC.md §3.4）。
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${parsed.data.coachId}))`;
+      //
+      // 必須用 $executeRaw 而非 $queryRaw：pg_advisory_xact_lock 回傳 void，
+      // 而 $queryRaw 會試圖反序列化結果欄位、對 void 直接拋 P2010。
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${parsed.data.coachId}))`;
 
       const ctx = await loadBookingContext(tx, parsed.data.coachId, now);
       if (!ctx) throw new BookingError("coach_not_bookable");
