@@ -29,6 +29,8 @@ type State =
   | { kind: "redirecting" }
   | { kind: "need-friend" }
   | { kind: "error"; message: string }
+  /** 註冊剛完成，正要關掉 LIFF 視窗回到聊天室。 */
+  | { kind: "registered"; side: "coach" | "member" }
   | { kind: "ready"; idToken: string; session: SessionResult };
 
 const OA_URL = `https://line.me/R/ti/p/${process.env.NEXT_PUBLIC_OA_BASIC_ID ?? ""}`;
@@ -98,10 +100,15 @@ export default function LiffClient() {
     setAttempt((n) => n + 1);
   }, []);
 
+  /** 關不掉視窗時（LINE 以外的瀏覽器）的退路：留在原地顯示他剛取得的那一套 App。 */
   const finishAs = useCallback((side: "coach" | "member") => {
     setLandOn(side);
     setState({ kind: "loading" });
     setAttempt((n) => n + 1);
+  }, []);
+
+  const registered = useCallback((side: "coach" | "member") => {
+    setState({ kind: "registered", side });
   }, []);
 
   useEffect(() => {
@@ -136,6 +143,10 @@ export default function LiffClient() {
         </div>
       </Centered>
     );
+  }
+
+  if (state.kind === "registered") {
+    return <Registered side={state.side} onCannotClose={finishAs} />;
   }
 
   if (state.kind === "need-friend") {
@@ -180,7 +191,7 @@ export default function LiffClient() {
           idToken={idToken}
           inviteToken={inviteToken!}
           defaultName={session.lineName ?? ""}
-          onDone={() => finishAs("coach")}
+          onDone={() => registered("coach")}
         />
       );
     }
@@ -191,7 +202,7 @@ export default function LiffClient() {
         inviteToken={inviteToken!}
         coachName={invite.coachName}
         suggestedName={invite.suggestedName || (session.lineName ?? "")}
-        onDone={() => finishAs("member")}
+        onDone={() => registered("member")}
       />
     );
   }
@@ -211,6 +222,54 @@ export default function LiffClient() {
     <Screen>
       <Title>需要邀請連結</Title>
       <Hint>這個頁面要透過教練提供的專屬連結才能開啟。請向你的教練索取邀請連結。</Hint>
+    </Screen>
+  );
+}
+
+/**
+ * 註冊完成後的收尾：停留一下讓使用者看到結果，然後關掉 LIFF 視窗回到聊天室。
+ *
+ * 回聊天室才看得到剛綁上的 Rich Menu，而選單就是這套系統平常的入口——把人留在
+ * 網頁裡反而是死路。停這一下是因為註冊那兩支 API 都不發訊息，視窗直接消失的話
+ * 使用者不會知道到底成功了沒。
+ *
+ * closeWindow 只在 LINE 內有效。在外部瀏覽器開啟時關不掉，改走 onCannotClose
+ * 留在原地顯示對應的 App。
+ */
+function Registered({
+  side,
+  onCannotClose,
+}: {
+  side: "coach" | "member";
+  onCannotClose: (side: "coach" | "member") => void;
+}) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const liff = (await import("@line/liff")).default;
+          if (liff.isInClient()) {
+            liff.closeWindow();
+            return;
+          }
+        } catch (err) {
+          console.warn("[liff] 關閉視窗失敗", err);
+        }
+        onCannotClose(side);
+      })();
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [side, onCannotClose]);
+
+  return (
+    <Screen>
+      <Title>{side === "coach" ? "教練註冊完成" : "加入完成"}</Title>
+      <Hint>
+        {side === "coach"
+          ? "正在返回聊天室，下方選單就是你的工作區。"
+          : "正在返回聊天室，之後的上課提醒會直接發到這裡。"}
+      </Hint>
     </Screen>
   );
 }
