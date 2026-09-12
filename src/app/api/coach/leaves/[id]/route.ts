@@ -23,7 +23,13 @@ export async function POST(
   if (!parsed.success) return Response.json({ error: "invalid_body" }, { status: 400 });
 
   const leave = await prisma.leaveRequest.findFirst({
-    where: { id, status: "pending", session: { coachId: auth.value.id } },
+    // 課已取消的請假不能再決定：駁回會推一則「這堂課仍照原定時間進行」給學員，
+    // 而那堂課已經不存在了。停留很久的待辦清單仍可能送來這種請求。
+    where: {
+      id,
+      status: "pending",
+      session: { coachId: auth.value.id, status: "scheduled" },
+    },
     select: {
       id: true,
       memberId: true,

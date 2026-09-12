@@ -4,13 +4,21 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** 待教練決定的請假申請。自動核准的不會出現在這裡——那些不需要處理。 */
+/**
+ * 待教練決定的請假申請。自動核准的不會出現在這裡——那些不需要處理。
+ * 已取消的課也不會：課取消後那筆申請再也沒有東西可決定，留在待辦裡只會讓
+ * 教練點進一堂不存在的課（結束合作一次取消多堂課時尤其明顯）。
+ * 請假記錄本身不動——他當時確實申請了、確實沒人決定，那是歷史。
+ */
 export async function GET(req: Request): Promise<Response> {
   const auth = await requireCoach(req);
   if (!auth.ok) return auth.response;
 
   const leaves = await prisma.leaveRequest.findMany({
-    where: { status: "pending", session: { coachId: auth.value.id } },
+    where: {
+      status: "pending",
+      session: { coachId: auth.value.id, status: "scheduled" },
+    },
     orderBy: { createdAt: "asc" },
     select: {
       id: true,
