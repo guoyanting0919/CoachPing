@@ -22,10 +22,24 @@ export function hoursUntil(startAt: Date, now: Date = new Date()): number {
 }
 
 /**
- * 核准請假：把學員從該堂課移除，並清掉他自己那則尚未送出的提醒。
- * 若這堂課因此沒有人了，整堂標記取消。
+ * 核准請假：把學員從該堂課移除。規則與結束合作共用，見 removeParticipant。
  */
 export async function applyApprovedLeave(
+  db: Db,
+  sessionId: string,
+  memberId: string,
+): Promise<{ sessionCancelled: boolean }> {
+  return removeParticipant(db, sessionId, memberId);
+}
+
+/**
+ * 把一位學員從一堂課移除，並清掉他自己那則尚未送出的提醒。
+ * 若這堂課因此沒有人了，整堂標記取消。
+ *
+ * 請假核准（SPEC.md §6）與結束合作共用這條規則：動到的是「該學員在該堂課的參與」，
+ * 不是整堂課——一堂課最多 3 人，小明走了，小華那堂課還是要上。
+ */
+export async function removeParticipant(
   db: Db,
   sessionId: string,
   memberId: string,

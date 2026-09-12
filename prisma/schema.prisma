@@ -138,6 +138,12 @@ model CoachMember {
 
   createdAt DateTime @default(now()) @map("created_at")
 
+  /// 結束合作的時間點，null 代表關係進行中。「已結束」清單靠它排序——
+  /// 少了它教練分不出哪些是三個月前的舊帳。
+  /// 恢復合作時清回 null，與 status 互為交叉驗證。
+  /// 不用 updatedAt：改一次稱呼就會沖掉「何時結束」這個語義。
+  endedAt DateTime? @map("ended_at")
+
   coach  Coach  @relation(fields: [coachId], references: [id], onDelete: Cascade)
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
 

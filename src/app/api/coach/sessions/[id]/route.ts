@@ -126,7 +126,7 @@ export async function PATCH(
   return Response.json({ ok: true, updated: future.length });
 }
 
-/** 取消。不刪除記錄，只改狀態（SPEC.md §4 只停用不刪除）。 */
+/** 取消。不刪除記錄，只改狀態（SPEC.md §4 只結束合作、不刪除）。 */
 export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ id: string }> },

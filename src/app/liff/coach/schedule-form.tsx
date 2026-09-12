@@ -31,7 +31,7 @@ type ListResult = { members: MemberRow[] };
 
 const ERROR_MESSAGES: Record<string, string> = {
   past_date: "不能把課排到今天之前。",
-  member_not_found: "選到的學員不存在或已停用，請重新選擇。",
+  member_not_found: "選到的學員不存在或已結束合作，請重新選擇。",
   invalid_body: "資料格式有誤，請確認後重試。",
 };
 

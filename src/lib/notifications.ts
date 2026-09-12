@@ -463,6 +463,7 @@ export async function renderMemberChange(
     kind?: string;
     leaveRequestId?: string;
     sessionId?: string;
+    sessionIds?: string[];
     oldStartAt?: string;
   } | null,
 ): Promise<string | null> {
@@ -497,6 +498,36 @@ export async function renderMemberChange(
           "",
           "有疑問請直接聯絡教練。",
         ].join("\n");
+  }
+
+  if (payload.kind === "cancelled_digest") {
+    const ids = payload.sessionIds;
+    if (!ids?.length) return null;
+
+    const sessions = await prisma.session.findMany({
+      where: { id: { in: ids } },
+      orderBy: { startAt: "asc" },
+      select: {
+        startAt: true,
+        durationMin: true,
+        coach: { select: { name: true } },
+      },
+    });
+    if (sessions.length === 0) return null;
+
+    const coachName = sessions[0]!.coach.name;
+
+    return [
+      "【課程取消】",
+      "",
+      ...sessions.map((s) => when(s.startAt, s.durationMin)),
+      "",
+      sessions.length === 1
+        ? `${coachName} 教練取消了這堂課。`
+        : `${coachName} 教練取消了以上 ${sessions.length} 堂課。`,
+      "",
+      "有疑問請直接聯絡教練。",
+    ].join("\n");
   }
 
   if (payload.kind === "cancelled" || payload.kind === "rescheduled") {
@@ -617,4 +648,33 @@ export async function enqueueSessionChange(
 
   await db.notification.createMany({ data: rows });
   return rows.length;
+}
+
+/**
+ * 一次取消多堂課時，學員只收到一則彙總（結束合作會這樣，SPEC.md §4）。
+ *
+ * 不重用 enqueueSessionChange：它是逐堂逐人各一則，取消 8 堂課就是 8 則 LINE 訊息——
+ * 既像騷擾，也照則數計進教練的推播用量（SPEC.md §16）。
+ *
+ * sessionId 欄位留 null：這則通知不屬於任何單一課程，掛上其中一堂會讓
+ * cancelPendingNotifications 之類按 sessionId 的操作誤傷它。課程清單走 payload，
+ * 與 coach_booking 的 sessionIds 寫法一致。
+ */
+export async function enqueueSessionsCancelledDigest(
+  db: Db,
+  targetLineUserId: string,
+  coachId: string,
+  sessionIds: string[],
+): Promise<void> {
+  if (sessionIds.length === 0) return;
+
+  await db.notification.create({
+    data: {
+      targetLineUserId,
+      type: "member_change",
+      payload: { kind: "cancelled_digest", sessionIds },
+      sendAt: new Date(),
+      coachId,
+    },
+  });
 }

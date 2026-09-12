@@ -24,7 +24,7 @@ export async function GET(req: Request): Promise<Response> {
   const now = new Date();
   const requested = new URL(req.url).searchParams.get("coachId");
 
-  // 只列這位學員自己的教練，且關係仍有效。少了 status 這道，停用的關係還能約課。
+  // 只列這位學員自己的教練，且關係仍有效。少了 status 這道，已結束合作的關係還能約課。
   const links = await prisma.coachMember.findMany({
     where: { memberId: auth.value.id, status: "active" },
     orderBy: { createdAt: "asc" },

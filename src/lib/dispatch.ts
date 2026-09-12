@@ -184,6 +184,7 @@ async function renderText(n: Claimed): Promise<string | null> {
           kind?: string;
           leaveRequestId?: string;
           sessionId?: string;
+          sessionIds?: string[];
           oldStartAt?: string;
         } | null,
       );

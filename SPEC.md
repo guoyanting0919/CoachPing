@@ -304,7 +304,7 @@ LIFF 前端傳來的 `userId` **一律不可信任**——那只是一段 JSON�
 - **隱私硬規則**：教練只能讀取 `coach_id` 等於自己的 `sessions`，以及自己 `coach_members` 中的學員。A 教練不得得知學員也在上 B 教練的課。所有查詢一律帶 `coach_id` 條件，無例外。
 - **學員名字掛在關係上**：教練端顯示的名字一律讀 `coach_members.display_name`，不讀 `members.display_name`。同一學員可能屬於多位教練，共用名字會讓 A 教練取的稱呼洩漏給 B 教練，違反上一條隱私規則。`members.display_name` 僅用於學員端自己的畫面。
 - **重複人員必須合併**：教練邀請學員時會先建立 `line_user_id` 為 null 的佔位記錄；若該 LINE 使用者其實已是別的教練的學員，註冊時必須把佔位記錄**合併**進既有記錄（搬移 `session_participants`、改指 `invites`、重建 `coach_members`），不可產生第二筆 `members`。
-- **只停用、不刪除**。學員離開時 `coach_members.status = inactive`，歷史記錄保留。停用時詢問「是否同時取消未來的 N 堂課」，預設是。
+- **只結束合作、不刪除**。教練把學員移出名單時 `coach_members.status = inactive`、`ended_at` 落地，關係與歷史都保留。學員不能再向這位教練預約，教練也不能再為他排課；兩邊的防線都靠查詢帶 `status = active`。結束時詢問「是否同時取消未來的 N 堂課」，預設是。可逆——教練可以恢復合作。只有教練能發動，學員不能自己離開教練。
 - **時區**寫死 `Asia/Taipei`，全系統不做多時區。
 
 ---

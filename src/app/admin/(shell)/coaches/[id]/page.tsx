@@ -128,7 +128,7 @@ export default async function CoachDetailPage({ params }: PageProps<"/admin/coac
                         <Badge tone="good">已連結</Badge>
                       )}
                       {m.lineBlocked ? <Badge tone="bad">已封鎖 OA</Badge> : null}
-                      {m.status === "inactive" ? <Badge>已停用</Badge> : null}
+                      {m.status === "inactive" ? <Badge>已結束</Badge> : null}
                     </span>
                   </Td>
                   <Td numeric muted={m.sessionCount === 0}>
